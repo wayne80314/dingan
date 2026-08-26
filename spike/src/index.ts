@@ -1,0 +1,30 @@
+import { Hono } from "hono";
+import type { Env } from "./types";
+import { handleWebhook } from "./webhook";
+import { handlePanelGet, handlePanelPush } from "./panel";
+import { handleReport } from "./report";
+import { safeInsertError } from "./db";
+
+const app = new Hono<{ Bindings: Env }>();
+
+app.get("/health", (c) => c.text("ok"));
+
+app.post("/webhook", handleWebhook);
+app.get("/panel", handlePanelGet);
+app.post("/panel/push", handlePanelPush);
+app.get("/report", handleReport);
+
+// Defense-in-depth backstop: even if a bug somewhere upstream of
+// handleWebhook's own try/catch layers throws, /webhook must still answer
+// 200 so LINE doesn't treat this endpoint as down and retry-storm the whole
+// batch. Every other route gets Hono's normal error surface.
+app.onError((err, c) => {
+  if (c.req.path === "/webhook") {
+    c.executionCtx.waitUntil(safeInsertError(c.env, "webhook_onerror", err));
+    return c.text("ok", 200);
+  }
+  console.error(err);
+  return c.text("internal error", 500);
+});
+
+export default app;

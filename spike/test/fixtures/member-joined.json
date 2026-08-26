@@ -1,0 +1,10 @@
+{
+  "type": "memberJoined",
+  "webhookEventId": "01HFIXTUREMEMJOIN0000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000008000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01" },
+  "replyToken": "reply-fixture-memberjoined-01",
+  "joined": { "members": [{ "type": "user", "userId": "Ufixtureuser02" }] }
+}

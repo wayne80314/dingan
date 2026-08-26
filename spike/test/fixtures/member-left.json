@@ -1,0 +1,9 @@
+{
+  "type": "memberLeft",
+  "webhookEventId": "01HFIXTUREMEMLEFT0000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000009000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01" },
+  "left": { "members": [{ "type": "user", "userId": "Ufixtureuser02" }] }
+}

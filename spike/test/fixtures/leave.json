@@ -1,0 +1,8 @@
+{
+  "type": "leave",
+  "webhookEventId": "01HFIXTURELEAVE00000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000007000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01" }
+}

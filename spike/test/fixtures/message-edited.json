@@ -1,0 +1,10 @@
+{
+  "type": "messageEdited",
+  "webhookEventId": "01HFIXTUREEDITED000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000004000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01", "userId": "Ufixtureuser01" },
+  "replyToken": "reply-fixture-edited-01",
+  "message": { "id": "msgfixtureedit01", "type": "text", "text": "大家好，這是修改後的討論訊息" }
+}

@@ -1,0 +1,10 @@
+{
+  "type": "message",
+  "webhookEventId": "01HFIXTUREMESSAGE0000000002",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000001000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01" },
+  "replyToken": "reply-fixture-message-02",
+  "message": { "id": "msgfixture02", "type": "text", "text": "我確認 D-001" }
+}

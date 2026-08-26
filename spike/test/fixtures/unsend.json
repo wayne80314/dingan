@@ -1,0 +1,9 @@
+{
+  "type": "unsend",
+  "webhookEventId": "01HFIXTUREUNSEND00000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000005000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01", "userId": "Ufixtureuser01" },
+  "unsend": { "messageId": "msgfixture01" }
+}

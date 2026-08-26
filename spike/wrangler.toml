@@ -1,0 +1,25 @@
+name = "dingan-spike"
+main = "src/index.ts"
+# Bump freely -- just keep it <= the workerd runtime bundled with your
+# installed `wrangler`/`@cloudflare/vitest-plugin` (`node -e "console.log(require('workerd').compatibilityDate)"`
+# after `npm install` tells you the max). A date after that fails local dev
+# and `vitest run` with ERR_FUTURE_COMPATIBILITY_DATE even though it's a
+# valid past date for the real deployed edge.
+compatibility_date = "2026-08-25"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dingan-spike"
+database_id = "REPLACE_AFTER_D1_CREATE"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "dingan-spike-media"
+
+# Secrets are NOT set here. After `wrangler login`, set them with:
+#   wrangler secret put LINE_CHANNEL_SECRET
+#   wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
+#   wrangler secret put PANEL_TOKEN
+# For local dev, copy .dev.vars.example to .dev.vars and fill in real values
+# (.dev.vars is gitignored).

@@ -1,0 +1,10 @@
+{
+  "type": "postback",
+  "webhookEventId": "01HFIXTUREPOSTBACK000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000002000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01", "userId": "Ufixtureuser01" },
+  "replyToken": "reply-fixture-postback-01",
+  "postback": { "data": "confirm:D-001" }
+}

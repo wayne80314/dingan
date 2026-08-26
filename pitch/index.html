@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>定案 — LINE 群組決策紀錄工具（試點招募）</title>
+<style>
+  :root {
+    --bg: #faf8f5;
+    --card: #ffffff;
+    --ink: #24211d;
+    --muted: #6b6459;
+    --accent: #1f7a4d;
+    --accent-ink: #0d3d26;
+    --line: #e7e1d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header { text-align: center; margin-bottom: 2.5rem; }
+  .badge {
+    display: inline-block;
+    font-size: 0.8rem;
+    color: var(--accent-ink);
+    background: #e8f3ec;
+    border: 1px solid #cfe6d8;
+    border-radius: 999px;
+    padding: 0.25rem 0.9rem;
+    margin-bottom: 1rem;
+  }
+  h1 { font-size: 2rem; margin: 0 0 0.5rem; letter-spacing: 0.02em; }
+  .tagline { color: var(--muted); font-size: 1.05rem; margin: 0; }
+  section { margin-bottom: 2.25rem; }
+  h2 { font-size: 1.15rem; margin: 0 0 0.9rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.25rem 1.4rem;
+  }
+  .pain { display: grid; gap: 0.7rem; }
+  .pain-item {
+    display: flex; gap: 0.7rem; align-items: flex-start;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0.9rem 1.1rem;
+  }
+  .pain-item .mark { color: #b23b3b; font-weight: 600; flex-shrink: 0; }
+  .steps { display: grid; gap: 0.9rem; counter-reset: step; }
+  .step {
+    display: flex; gap: 0.9rem; align-items: flex-start;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0.9rem 1.1rem;
+  }
+  .step .num {
+    counter-increment: step;
+    flex-shrink: 0;
+    width: 1.9rem; height: 1.9rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem; font-weight: 700;
+  }
+  .step .num::before { content: counter(step); }
+  .step p { margin: 0; }
+  .step strong { display: block; margin-bottom: 0.15rem; }
+  .note {
+    font-size: 0.85rem;
+    color: var(--muted);
+    background: #fdf6e8;
+    border: 1px solid #f0e0b6;
+    border-radius: 10px;
+    padding: 0.9rem 1.1rem;
+  }
+  .cta {
+    text-align: center;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 14px;
+    padding: 1.75rem 1.4rem;
+  }
+  .cta h2 { color: #fff; }
+  .cta p { color: #eaf5ee; margin-top: 0; }
+  .cta .contact {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-weight: 700;
+    font-size: 1.05rem;
+    background: #fff;
+    color: var(--accent-ink);
+    border-radius: 999px;
+    padding: 0.6rem 1.5rem;
+  }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 2.5rem;
+  }
+  ul.simple { margin: 0; padding-left: 1.2rem; }
+  ul.simple li { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="badge">技術驗證與試點招募階段</span>
+    <h1>定案</h1>
+    <p class="tagline">在你原本就在用的 LINE 群組裡，把重要決定變成看得見、對得起帳的紀錄</p>
+  </header>
+
+  <section>
+    <h2>設計師常遇到的狀況</h2>
+    <div class="pain">
+      <div class="pain-item"><span class="mark">✕</span><span>業主在群組裡一句「這樣可以」，結完工卻說「我沒同意加這筆」</span></div>
+      <div class="pain-item"><span class="mark">✕</span><span>追加減帳的討論散落在幾百則訊息裡，請款的時候要花時間往回翻</span></div>
+      <div class="pain-item"><span class="mark">✕</span><span>真的有爭議時，聊天紀錄一長串，很難整理成一份講得清楚的說明</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>「定案」怎麼運作</h2>
+    <div class="steps">
+      <div class="step"><span class="num"></span><p><strong>加入你原本的群組</strong>不改變你和業主原本的溝通方式，機器人只是安靜地在旁邊記錄。</p></div>
+      <div class="step"><span class="num"></span><p><strong>重要決定變成一張「決策卡」</strong>把變更範圍、金額、影響工期整理成一張卡片，推播給業主。</p></div>
+      <div class="step"><span class="num"></span><p><strong>業主按下確認</strong>誰在什麼時候確認了什麼，都記錄下來。</p></div>
+      <div class="step"><span class="num"></span><p><strong>完工時一鍵匯出</strong>決策總表與追加減帳明細，作為請款附件或釐清爭議時的佐證。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="note">
+      <strong>誠實說明：</strong>「定案」產出的是<strong>可驗證的決策稽核紀錄</strong>，用來輔助釐清溝通過程與確認方式，
+      <strong>不是法律文件、不等同公證，也不保證具備自動法律效力</strong>——真的走到爭議，仍需要雙方合意或循正式法律途徑處理。
+      我們不會誇大這件事能做到什麼。
+    </div>
+  </section>
+
+  <section>
+    <h2>現在是什麼階段</h2>
+    <div class="card">
+      <p style="margin-top:0">這是<strong>技術驗證與試點招募階段</strong>，不是成熟產品：</p>
+      <ul class="simple">
+        <li>我們正在用真實 LINE 群組驗證「確認者身分能否穩定識別」等技術細節</li>
+        <li>正在找 3–5 家設計公司，把「定案」加進一個<strong>正在進行中的真實案件</strong>群組，實際跑一段時間</li>
+        <li>試點目的是互相驗證：這個工具真的解決你的問題嗎？值得付費長期使用嗎？</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2>想參加試點嗎？</h2>
+    <p>找一個正在進行中的案件，讓我們一起看看這個工具能不能幫上忙。</p>
+    <span class="contact">加 LINE 聊聊試點細節</span>
+  </section>
+
+  <footer>
+    定案 — F0 技術驗證階段 · 本頁不含任何客戶實績或誇大宣稱
+  </footer>
+
+</div>
+</body>
+</html>

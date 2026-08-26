@@ -1,0 +1,9 @@
+{
+  "type": "join",
+  "webhookEventId": "01HFIXTUREJOIN000000000001",
+  "deliveryContext": { "isRedelivery": false },
+  "timestamp": 1735000006000,
+  "mode": "active",
+  "source": { "type": "group", "groupId": "Cfixturegroup01" },
+  "replyToken": "reply-fixture-join-01"
+}

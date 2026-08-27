@@ -155,5 +155,80 @@ M0 仍應實作 `messageEdited` 的版本化處理（成本低、且功能可能
 
 ## 官方保證程度
 
-（此節待背景查證完成後補上：實測成功不等於 LINE 的官方保證，
-需釐清是否存在文件化的例外情境，以決定產品是否仍需防禦性設計與備援機制。）
+### 裁決：**實務可靠，但無明文保證** — 可以做，但必須防禦性設計
+
+這是本次 F0 最重要、也最違反直覺的一項結論：**實測全數成功，但官方規格說它不該成功。**
+
+#### 官方規格怎麼寫
+
+LINE Messaging API Reference 的 Source group chat 段落，以及官方 OpenAPI spec
+（`line/line-openapi` → `webhook.yml`）對 `userId` 的描述：
+
+> "ID of the source user. **Only included in message events.**
+> Only users of LINE for iOS and LINE for Android are included in `userId`."
+
+- `GroupSource.required` 只有 `[type, groupId]`——**`userId` 是選填**，官方各語言 SDK 因此一律將其型別標為 nullable。
+- 加重因素：該 spec 於 **2025-04** 修訂過 source 的 required 欄位（補上 `type`），
+  卻**沒有**把 `userId` 升為必填。這是選擇，不是遺漏——「文件過時可忽略」的說法站不住腳。
+- 前例：LINE 曾於 **2025-01** 直接移除某 webhook 事件的整個 `source` 屬性，
+  預告期僅 19 天。LINE 有更動 source 結構的前科。
+
+**postback 不是 message event**，所以我們觀測到的行為屬於**未文件化的實作細節**，
+不是契約保證。LINE 可以在任何版本收斂回文件敘述，而且不算 breaking change。
+
+#### 有明文保證的部分 ✅
+
+非好友／已封鎖仍可查詢群組成員 profile，**這是官方白紙黑字的承諾**：
+
+> "You can get the profile information of users in the same group chat,
+> **regardless of whether they have added your LINE Official Account as a friend,
+> or blocked** your LINE Official Account."
+
+所以 §2 的 12/12 成功不是僥倖，是官方設計行為。
+
+> ⚠️ 別搞混另一支 API：`GET /v2/bot/group/{groupId}/members/ids`（列舉全體成員）
+> 明文限定 **verified 或 premium 帳號**才能用。產品設計不可建立在這支 API 上。
+
+#### 已知會導致 userId 缺席的情境
+
+| 情境 | 證據等級 | 台灣裝修業實務機率 |
+|---|---|---|
+| A. 從未用過 iOS/Android 版 LINE 的純 PC 帳號 | 官方明文 | **< 0.1%**（2020/04 起已無法新辦 PC 帳號） |
+| B. 點擊當下用戶端為電腦版 | **已實測排除** ✅ | — |
+| C. LINE 未來收斂回「僅 message event 帶 userId」 | spec 有據、無時程 | 產品週期內約 **5–15%**，可能僅數週預告 |
+| D. LINE ≤ 7.4.x 舊版用戶端 | 2017 官方公告 | ~0% |
+| E. **room（多人聊天）而非 group** | 官方 | source 只有 `roomId` 沒有 `groupId`——**程式若只讀 `groupId` 會直接失效**。機率中低但致命 |
+
+**情境 B 已由實測排除**：Wayne 的帳號（曾用過手機版）從 LINE 電腦版點擊 postback，
+`source.userId` 依然存在。這確認了官方那句話應作「帳號歷史」解讀，而非「點擊當下的用戶端」。
+原先評估中「10–30% 的確認會失去身分」這個災難級風險**不成立**。
+
+#### 對 M0 產品的具體要求
+
+1. **可見回執（最高 CP 值）**：每次確認立即在群組 reply「✅ {姓名} 於 08/27 14:03 確認 D-001」。
+   這一招把「缺 userId、webhook 遺失、伺服器當機、他人代按」全部從**沉默失敗**轉為**可見失敗**。
+2. **schema 先認錯**：`confirmed_by_user_id` 必須 nullable，並額外記錄
+   `identity_source`（postback／member_profile／liff_id_token）與 `identity_confidence`。
+   缺 userId 時標記為顯性的 `UNIDENTIFIED`，並自動 reply 請該業主改用**文字訊息**回覆確認
+   （message event 是唯一有書面保證帶 userId 的事件類型）。**絕不可靜默丟棄。**
+3. **確認當下即固化姓名**：確認瞬間就呼叫 member profile 存下 displayName 快照。
+   成員退群或 OA 離群後補查會得到 404。
+4. **postback data 加固**：目前的 `confirm:D-001` 無 nonce、無群組綁定，
+   可被轉傳與重放。應改為「決策 ID + 一次性 nonce」，並在伺服器端驗證
+   `source.groupId` 等於該決策綁定的群組。
+5. **LIFF + LINE Login：保留但不全面採用**。全面採用會殺死「群組內一鍵確認」的核心體驗。
+   採三段觸發：(a) 偵測到 userId 缺席時降級；(b) 高風險決策（追加預算、驗收）強制走
+   LIFF ID token（可驗簽、強度最高）；(c) 專案啟動時一次性綁定業主 userId 白名單。
+6. **合成監控**：內部測試群每日自動推卡並自動點擊，對每筆真實 postback 記錄 `has_userId`；
+   一旦出現 false 立即告警。這是 LINE 悄悄改行為時，唯一能當天發現的手段。
+7. **記錄 provider／channel id**：user ID 因 provider 而異，換 provider 會讓歷史稽核靜默失去對應。
+
+### 仍待實測（按風險排序）
+
+| # | 項目 | 為何重要 |
+|---|---|---|
+| 1 | **room（多人聊天）** | source 只有 `roomId`，只讀 `groupId` 的程式會直接失效 |
+| 2 | **卡片轉傳與重放** | 卡片被轉傳到別的群組後點擊會怎樣？`data` 能否無限重放？ |
+| 3 | **退群後補查 profile** | 驗證「當下固化姓名」是必要而非可選 |
+| 4 | **封鎖狀態下點擊** | 官方保證 profile 可查，但 postback 行為未實測 |
+| 5 | **重複點擊／redelivery** | 同鈕連點的 `webhookEventId` 行為，冪等設計的依據 |

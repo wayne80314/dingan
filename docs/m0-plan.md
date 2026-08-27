@@ -90,12 +90,25 @@
 | **members/count 是否含機器人** | ✅ **不含**。測試群組實際 4 個成員（3 人 + 機器人），`members/count` 回 `3` | **正好等於計費收件人數**（機器人不收自己發的訊息）。`recipient_count` 可直接採用 API 回傳值，**不需要 −1 調整**；若誤以為含 bot 而自行減一，用量記帳會系統性少計 |
 | **X-Line-Retry-Key 視覺確認** | ✅ 群組內只出現一則測試訊息（非兩則） | API 的 409 去重行為與實際送達一致，不只是回應碼層面的假象 |
 | **(b) X-Line-Retry-Key** | ✅ **確實去重，且優於預期**。第一次 200；同鍵重送回 **409「The retry key is already accepted」，且回應 body 帶原始 `sentMessages` 與 message id** | outbox 在不確定狀態下可安全用同一 retry key 重試：**409 視同成功，並可從回應撿回原始 message id**。這正是 outbox 最需要的性質 |
-| **(a) LINE Login `sub`** | ⏳ **待驗**（需建立 LINE Login channel，屬不可逆的 provider 設定） | 決定 LIFF 降級路徑是否可行。詳見下方待辦 |
+| **(a) LINE Login `sub`** | ✅ **相符**。同 provider 下建立 Login channel（aud `2011288897`）＋ LIFF app，用 Wayne 帳號開啟取得 ID token，`sub` = `U097bdaa0f1e6b00ea4e9a10ae2146aed`，與其 Messaging userId **完全相同**。且經 LINE 官方 `/oauth2/v2.1/verify` 驗章通過（非偽造 token），`iss` = `https://access.line.me` | **LIFF 降級路徑成立**。當 postback 缺 userId 時，可用 LIFF + LINE Login 補回身分且對應得上既有紀錄。高風險決策強制走 LIFF ID token 的設計也可行 |
 
 **附帶發現**：D1 的 HTTP query API（`wrangler d1 execute`）**拒絕 PRAGMA 語句**（回 code 7403），
 但透過 Worker binding 執行 `PRAGMA foreign_keys` 正常。任何需要 PRAGMA 的診斷都得走 Worker，不能用 CLI。
 
-#### (a) 尚待執行：LINE Login channel 驗證
+#### M0.0 結案
+
+**六項全數完成，可進入 M0.1。** 三項推翻或簡化了原設計（FK 有強制、batch 原子、count 不需手填），
+兩項確認了關鍵地基（retry key 去重、LIFF 身分可對應），零項需要改變架構方向。
+
+**驗證資產保留**：`/m0verify`、`/liff`、`/liff/results` 三個端點留在 spike worker 裡不刪除。
+理由是它們之後還有用——試點客戶正式導入時、或 LINE 平台行為有變化時，
+可以立刻重跑同一組探測確認結論是否仍成立，而不必重寫一次驗證工具。
+
+**適用範圍的但書**：以上結論來自**我方的未驗證官方帳號**。架構採「單一中央機器人、多租戶」
+（見 [`architecture.md`](./architecture.md) §1），客戶共用同一個 channel，因此結論直接適用。
+但若未來改為讓客戶各自開 channel，`members/count` 等與帳號層級相關的結論需重驗。
+
+#### 附錄：(a) 的執行方式（供日後重驗參考）
 
 **為何不可省**：Messaging channel 與 Login channel 的 provider 歸屬是**不可逆設定**。
 若兩者不在同一 provider 下，`sub`（Login 回傳的使用者識別）與 messaging `userId` **不是同一個值**，

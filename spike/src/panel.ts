@@ -140,12 +140,22 @@ export async function handlePanelPush(c: Context<{ Bindings: Env }>): Promise<Re
   const token = c.req.query("token");
   if (!checkToken(c, token)) return c.text("unauthorized", 401);
 
+  // The /panel HTML form posts application/x-www-form-urlencoded, while
+  // curl/scripted callers post JSON. Accept both -- reading only JSON would
+  // 400 every click of the panel's own push button.
+  const contentType = c.req.header("content-type") ?? "";
+  const isForm =
+    contentType.includes("application/x-www-form-urlencoded") ||
+    contentType.includes("multipart/form-data");
+
   let body: { groupId?: unknown; cardType?: unknown };
   try {
-    body = await c.req.json();
+    body = isForm
+      ? ((await c.req.parseBody()) as { groupId?: unknown; cardType?: unknown })
+      : await c.req.json();
   } catch (err) {
     await safeInsertError(c.env, "panel_push", err);
-    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+    return respond(c, isForm, { ok: false, error: "unparseable request body" }, 400);
   }
 
   const groupId = typeof body.groupId === "string" ? body.groupId : null;
@@ -155,7 +165,12 @@ export async function handlePanelPush(c: Context<{ Bindings: Env }>): Promise<Re
       : null;
 
   if (!groupId || !cardType) {
-    return c.json({ ok: false, error: "groupId and cardType (postback|message-action|text) are required" }, 400);
+    return respond(
+      c,
+      isForm,
+      { ok: false, error: "groupId and cardType (postback|message-action|text) are required" },
+      400,
+    );
   }
 
   // Push billing is per recipient, so we look up the group's member count
@@ -174,11 +189,44 @@ export async function handlePanelPush(c: Context<{ Bindings: Env }>): Promise<Re
     pushedAt: Date.now(),
   });
 
-  return c.json({
+  return respond(c, isForm, {
     ok: pushResult.success,
     statusCode: pushResult.statusCode,
     recipientCount,
     memberCountLookupOk: countResult.success,
     lineResponseBody: pushResult.body,
   });
+}
+
+/**
+ * Form submissions get a readable HTML result with a link back to the panel
+ * -- the spike protocol has Wayne pushing a dozen-plus test cards in a row,
+ * and bouncing him to a raw JSON dump each time (with no way back but the
+ * browser's back button) makes that loop needlessly painful. Programmatic
+ * JSON callers still get JSON.
+ */
+function respond(
+  c: Context<{ Bindings: Env }>,
+  isForm: boolean,
+  payload: Record<string, unknown>,
+  status: 200 | 400 = 200,
+): Response {
+  if (!isForm) return c.json(payload, status);
+
+  const ok = payload.ok === true;
+  const backHref = `/panel?token=${encodeURIComponent(c.req.query("token") ?? "")}`;
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<title>推播結果 — 定案 F0 Spike</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  .result { border-radius: 10px; padding: 1rem 1.2rem; border: 1px solid ${ok ? "#bfe0c8" : "#e8c0bc"}; background: ${ok ? "#f0f8f2" : "#fdf1f0"}; }
+  pre { background: #f6f6f6; padding: 0.6rem; overflow-x: auto; font-size: 0.8rem; }
+  a { color: #1f7a4d; }
+</style>
+<h1>${ok ? "✅ 推播已送出" : "⚠️ 推播失敗"}</h1>
+<div class="result"><pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre></div>
+<p><a href="${backHref}">← 返回控制台</a></p>
+`;
+  return c.html(html, status);
 }

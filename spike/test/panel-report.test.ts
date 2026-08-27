@@ -156,6 +156,43 @@ describe("POST /panel/push", () => {
       expect(row?.card_type).toBe("postback");
     });
 
+    // Regression guard: the /panel page's push button is a plain HTML form,
+    // so it sends application/x-www-form-urlencoded -- not JSON. An earlier
+    // version only called c.req.json() and 400'd on every real button click
+    // while the JSON-based tests above stayed green.
+    it("accepts the panel form's urlencoded submission and returns HTML with a link back", async () => {
+      mockLineFetch();
+      const res = await call(`/panel/push?token=${encodeURIComponent(TOKEN)}`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ groupId: "Cformgroup01", cardType: "message-action" }).toString(),
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type") ?? "").toContain("text/html");
+      const html = await res.text();
+      expect(html).toContain("推播已送出");
+      expect(html).toContain(`/panel?token=${encodeURIComponent(TOKEN)}`);
+
+      const row = await testEnv.DB.prepare(
+        "SELECT recipient_count, card_type FROM push_log WHERE group_id = ?",
+      )
+        .bind("Cformgroup01")
+        .first<{ recipient_count: number; card_type: string }>();
+      expect(row?.recipient_count).toBe(5);
+      expect(row?.card_type).toBe("message-action");
+    });
+
+    it("returns an HTML (not JSON) error page when a form submission is missing groupId", async () => {
+      const res = await call(`/panel/push?token=${encodeURIComponent(TOKEN)}`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ cardType: "text" }).toString(),
+      });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type") ?? "").toContain("text/html");
+      expect(await res.text()).toContain("返回控制台");
+    });
+
     it("still logs the push (with a null recipientCount) if the member-count lookup fails", async () => {
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === "string" ? input : input.toString();

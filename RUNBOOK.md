@@ -1,6 +1,18 @@
 # RUNBOOK — 定案 F0 Spike
 
-給 Wayne 本人操作。程式碼、本地驗證（`npm run typecheck`、`npx vitest run`）已由 agent 完成；**LINE channel 建立與 Cloudflare 部署需要你自己的帳號與金鑰，agent 無法代辦**，以下是逐步操作。
+給 Wayne 本人操作。程式碼與本地驗證（`npm run typecheck`、`npx vitest run`）已完成。
+
+> ## 目前進度（2026-08-27）
+>
+> **Cloudflare 側已全部完成並上線**：D1 建好且套用 schema、R2 bucket 建好、
+> workers.dev 子網域註冊完成、`PANEL_TOKEN` 已設定、Worker 已部署，
+> 線上端點冒煙測試通過（`/health` 200、未授權存取擋 401、`/report` 正常）。
+> 實際網址與 `PANEL_TOKEN` 記在 **`DEPLOYMENT.local.md`**（該檔已 gitignore，不會進版控）。
+>
+> **還沒做的只剩 LINE 這一段**（需要你的 LINE 帳號，無法代辦）：
+> 下方第 1 節建立 channel → 設定兩個 LINE 密鑰 → 重新部署 → 填 Webhook URL → 跑測試矩陣。
+>
+> 在設定 `LINE_CHANNEL_SECRET` 之前，`/webhook` 對所有請求都回 401 是預期行為（簽章一定驗不過）。
 
 ## 0. 你需要準備的東西
 

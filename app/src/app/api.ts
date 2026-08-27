@@ -258,6 +258,22 @@ api.post("/decisions/:id/publish", async (c) => {
 // Export
 // ---------------------------------------------------------------------------
 
+/** Local time, not UTC.
+ *
+ * This file is attached to an invoice and read by a designer and their client,
+ * neither of whom should have to convert a Z-suffixed timestamp in their head
+ * to check when something was agreed. */
+function csvDateTime(ms: number | null): string {
+  if (!ms) return "";
+  const parts = new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(ms));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}/${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
 function csvCell(value: unknown): string {
   const s = value === null || value === undefined ? "" : String(value);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -347,7 +363,7 @@ api.get("/projects/:projectId/export.csv", async (c) => {
         { whitelisted: "本人登錄", asserted: "設計師指定", seen_before: "曾發言", unknown: "未知" }[
           r.identity_note ?? ""
         ] ?? r.identity_note ?? "",
-        r.decided_at ? new Date(r.decided_at).toISOString() : "",
+        csvDateTime(r.decided_at),
       ]
         .map(csvCell)
         .join(","),
@@ -358,7 +374,7 @@ api.get("/projects/:projectId/export.csv", async (c) => {
   lines.push([csvCell(`${includeAll ? "全部項目" : "已確認項目"}淨額`), "", "", "", "", "", csvCell(formatTwd(net, { withSign: true }))].join(","));
   lines.push("");
   lines.push(csvCell(`案件：${project.name}${project.client_name ? `／業主：${project.client_name}` : ""}`));
-  lines.push(csvCell(`匯出時間：${new Date().toISOString()}`));
+  lines.push(csvCell(`匯出時間：${csvDateTime(Date.now())}`));
   // Stated on the document itself, so it travels with the file rather than
   // living only in a web page nobody keeps.
   lines.push(

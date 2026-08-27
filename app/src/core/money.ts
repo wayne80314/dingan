@@ -93,7 +93,8 @@ export function formatTwd(cents: number, opts: { withSign?: boolean } = {}): str
   const frac = abs % 100;
   const wholeText = whole.toLocaleString("zh-TW");
   const body = frac === 0 ? wholeText : `${wholeText}.${String(frac).padStart(2, "0")}`;
-  const sign = negative ? "-" : opts.withSign ? "+" : "";
+  // Zero has no direction; signing it reads as an addition of nothing.
+  const sign = negative ? "-" : opts.withSign && cents !== 0 ? "+" : "";
   return `${sign}NT$${body}`;
 }
 

@@ -200,6 +200,15 @@ describe("CSV export", () => {
     expect(all).toContain("尚未確認的項目");
   });
 
+  // Read by a designer and their client, neither of whom should have to
+  // convert a UTC timestamp to check when something was agreed.
+  it("renders timestamps in Taipei time rather than UTC", async () => {
+    const t = await seedTenant("aaa");
+    const text = await (await call(`/api/projects/${t.projectId}/export.csv`, t.orgId)).text();
+    expect(text).not.toContain("Z");
+    expect(text).toMatch(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/);
+  });
+
   it("carries the audit-record framing on the document itself", async () => {
     const t = await seedTenant("aaa");
     const text = await (await call(`/api/projects/${t.projectId}/export.csv`, t.orgId)).text();

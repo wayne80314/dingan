@@ -20,6 +20,15 @@
     "LINE_CHANNEL_ID": ""
   },
 
+  // The dashboard bundle ships with this worker, so one deploy serves both the
+  // page and its API and there is no cross-origin setup to get wrong.
+  // single-page-application handling lets client-side view state survive a
+  // refresh instead of 404ing.
+  "assets": {
+    "directory": "./web/dist",
+    "not_found_handling": "single-page-application"
+  },
+
   // Retries sends that failed or timed out. Frequent enough that a stuck
   // decision card is not stuck for long.
   "triggers": { "crons": ["*/5 * * * *"] }

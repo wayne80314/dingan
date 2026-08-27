@@ -148,9 +148,11 @@ describe("formatTwd", () => {
     expect(formatTwd(-3500000, { withSign: true })).toBe("-NT$35,000");
   });
 
-  it("formats zero without a sign", () => {
+  // A signed zero reads as "an addition of nothing", which is noise on a
+  // statement where every other figure means a real direction.
+  it("never signs zero, even when signs are requested", () => {
     expect(formatTwd(0)).toBe("NT$0");
-    expect(formatTwd(0, { withSign: true })).toBe("+NT$0");
+    expect(formatTwd(0, { withSign: true })).toBe("NT$0");
   });
 });
 

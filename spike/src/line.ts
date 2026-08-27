@@ -52,6 +52,57 @@ export async function pushMessage(
   }
 }
 
+/**
+ * Reads a stream into a single buffer, stopping once `cap` bytes have been
+ * collected. Returns whether more data was available past the cap, so the
+ * caller can record that what it stored is a truncated prefix rather than the
+ * whole file.
+ */
+async function readCapped(
+  body: ReadableStream<Uint8Array>,
+  cap: number,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      const remaining = cap - total;
+      if (value.byteLength >= remaining) {
+        if (remaining > 0) {
+          chunks.push(value.subarray(0, remaining));
+          total += remaining;
+        }
+        // Anything still arriving is beyond what we agreed to store.
+        truncated = value.byteLength > remaining || total >= cap;
+        break;
+      }
+
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    // Releasing matters on the truncation path: we stop reading mid-response,
+    // and leaving the reader locked would keep the connection pinned.
+    reader.releaseLock();
+    void body.cancel().catch(() => {});
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, truncated };
+}
+
 export interface GetContentResult {
   success: boolean;
   mime: string | null;
@@ -88,30 +139,26 @@ export async function getContent(
 
     const mime = res.headers.get("content-type");
     const key = `media/${messageId}`;
+    const httpMetadata = mime ? { contentType: mime } : undefined;
 
-    // Cap the stream at MAX_MEDIA_BYTES by piping through a TransformStream
-    // that counts bytes and terminates the stream once the cap is hit.
-    let total = 0;
-    let truncated = false;
-    const limited = res.body.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          if (total >= MAX_MEDIA_BYTES) {
-            truncated = true;
-            return;
-          }
-          const remaining = MAX_MEDIA_BYTES - total;
-          const piece = chunk.byteLength > remaining ? chunk.slice(0, remaining) : chunk;
-          total += piece.byteLength;
-          if (piece.byteLength > 0) controller.enqueue(piece);
-          if (chunk.byteLength > remaining) truncated = true;
-        },
-      }),
-    );
-
-    await env.MEDIA.put(key, limited, {
-      httpMetadata: mime ? { contentType: mime } : undefined,
-    });
+    // Read into a capped buffer, then store that buffer. R2 rejects any
+    // stream whose length it cannot determine ("Provided readable stream must
+    // have a known length"), which rules out piping a byte-capping
+    // TransformStream into put() -- that shipped once and made every real
+    // image fetch fail while the suite stayed green, because Miniflare's R2 is
+    // more permissive than the real thing.
+    //
+    // Handing R2 the untouched response body would preserve true streaming
+    // when LINE sends Content-Length, but that path cannot be exercised in
+    // tests (a synthetic ReadableStream has no intrinsic length no matter what
+    // header you attach), and an unverifiable path is what caused this bug in
+    // the first place. With a hard MAX_MEDIA_BYTES ceiling the buffer is
+    // bounded well inside a Worker's memory budget, so one always-tested path
+    // is the better trade.
+    const capped = await readCapped(res.body, MAX_MEDIA_BYTES);
+    await env.MEDIA.put(key, capped.bytes, { httpMetadata });
+    const total = capped.bytes.byteLength;
+    const truncated = capped.truncated;
 
     return {
       success: true,

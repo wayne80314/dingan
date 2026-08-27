@@ -4,6 +4,7 @@ import { handleWebhook } from "./webhook";
 import { handlePanelGet, handlePanelPush } from "./panel";
 import { handleReport } from "./report";
 import { handleM0Verify } from "./m0verify";
+import { handleLiffPage, handleLiffVerify, handleLiffResults } from "./liff";
 import { safeInsertError } from "./db";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -18,6 +19,12 @@ app.get("/report", handleReport);
 // M0.0 verification sprint -- temporary, remove once the answers are
 // recorded in docs/m0-plan.md.
 app.get("/m0verify", handleM0Verify);
+// LIFF identity probe. The page and its POST target are deliberately open:
+// LINE opens them in the user's own in-app browser, where no shared secret
+// can be hidden. Reading the collected results is token-protected.
+app.get("/liff", handleLiffPage);
+app.post("/liff/verify", handleLiffVerify);
+app.get("/liff/results", handleLiffResults);
 
 // Defense-in-depth backstop: even if a bug somewhere upstream of
 // handleWebhook's own try/catch layers throws, /webhook must still answer

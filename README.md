@@ -21,6 +21,10 @@
 1. **`spike/`** — F0 技術驗證工具。一個 Cloudflare Worker，捕獲真實 LINE 群組的所有
    webhook 原始事件並自動分析。已部署且完成任務，保留作為未來回歸驗證與合成監控的基礎。
 2. **`docs/`** — 架構藍圖、定價模型、試點計畫、個資告知範本，以及 F0 實測結果。
+3. **`assets/line-brand/`** — LINE 官方帳號的品牌素材：
+   `dingan-profile-640.png`（大頭貼，640×640）、
+   `dingan-background-1920x1080.jpg`（官方帳號主頁背景）。
+   主色 `#1f7a4d`，與 `pitch/index.html` 一致。
 
 ## 從這裡開始
 

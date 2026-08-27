@@ -55,10 +55,31 @@ function scope(sql: string, orgId: string, binds: unknown[]): { sql: string; bin
       `scoped query is missing the ${ORG_TOKEN} marker; use unscoped() if the query is genuinely cross-tenant:\n${sql}`,
     );
   }
-  const occurrences = sql.split(ORG_TOKEN).length - 1;
-  const scopedSql = sql.split(ORG_TOKEN).join("organization_id = ?");
-  // One bound org id per marker, in source order, ahead of the caller's binds.
-  return { sql: scopedSql, binds: [...Array(occurrences).fill(orgId), ...binds] };
+
+  // Positional parameters bind in the order their `?` appears in the SQL, and
+  // the marker can sit anywhere -- often after a placeholder the caller
+  // supplied. So each org id is spliced in at the position its own `?` will
+  // occupy, counted by how many placeholders precede it in the text.
+  //
+  // Prepending them instead would misalign every bind after the first marker.
+  // That failure is quiet in the worst way: a query reading
+  // `WHERE project_id = ? AND organization_id = ?` with the arguments
+  // transposed matches nothing, so it looks like an empty result rather than
+  // an error.
+  const segments = sql.split(ORG_TOKEN);
+  const scopedSql = segments.join("organization_id = ?");
+
+  const merged: unknown[] = [];
+  let consumed = 0;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const placeholdersBefore = (segments[i].match(/\?/g) ?? []).length;
+    merged.push(...binds.slice(consumed, consumed + placeholdersBefore));
+    consumed += placeholdersBefore;
+    merged.push(orgId);
+  }
+  merged.push(...binds.slice(consumed));
+
+  return { sql: scopedSql, binds: merged };
 }
 
 export function withOrg(env: Env, organizationId: string): ScopedDb {

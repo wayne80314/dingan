@@ -1,0 +1,26 @@
+{
+  // Dashboard worker. Access control is Cloudflare Access in front of this
+  // hostname for M0.1 -- see docs/m0-plan.md.
+  "name": "dingan-app",
+  "main": "src/app/index.ts",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    { "binding": "DB", "database_name": "dingan", "database_id": "REPLACE_AFTER_D1_CREATE" }
+  ],
+
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "dingan-media" },
+    { "binding": "RAW", "bucket_name": "dingan-raw" }
+  ],
+
+  "vars": {
+    "LINE_PROVIDER_ID": "",
+    "LINE_CHANNEL_ID": ""
+  },
+
+  // Retries sends that failed or timed out. Frequent enough that a stuck
+  // decision card is not stuck for long.
+  "triggers": { "crons": ["*/5 * * * *"] }
+}

@@ -12,6 +12,7 @@ import { unscoped } from "../core/db";
 import type { Env } from "../core/types";
 import { handlePostback } from "./postback";
 import { buildReceiptMessages } from "./receipt";
+import { ingestEvent } from "./ingest";
 import type { ParsedEvent } from "./webhook";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -112,10 +113,10 @@ export async function handleFastPath(env: Env, events: ParsedEvent[]): Promise<v
     try {
       if (ev.eventType === "postback") {
         await handleOnePostback(env, ev);
-        await markDone(env, ev.webhookEventId);
+      } else {
+        await ingestEvent(env, ev);
       }
-      // Messages, joins and media are handled by the ingest path rather than
-      // here; nothing about them needs the reply token.
+      await markDone(env, ev.webhookEventId);
     } catch (err) {
       try {
         await markFailed(env, ev.webhookEventId, err);

@@ -25,8 +25,8 @@
   "vars": {
     // Non-secret identifiers. LINE user ids are scoped to a provider, so these
     // are recorded alongside every identity for later interpretation.
-    "LINE_PROVIDER_ID": "",
-    "LINE_CHANNEL_ID": ""
+    "LINE_PROVIDER_ID": "2011286772",
+    "LINE_CHANNEL_ID": "2011286772"
   }
 
   // Secrets are set with `wrangler secret put`, never in this file:

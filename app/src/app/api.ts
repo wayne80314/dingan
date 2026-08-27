@@ -404,6 +404,74 @@ api.get("/projects/:projectId/export.csv", async (c) => {
  * below 100% deserves a look before it becomes a confirmation nobody can
  * attribute.
  */
+/**
+ * Checks the configured LINE identifiers against what LINE itself reports.
+ *
+ * `LINE_CHANNEL_ID` and `LINE_PROVIDER_ID` are stamped onto every confirmation
+ * so a user id stays interpretable years later — LINE user ids are scoped to a
+ * provider, so without them a historical record cannot be tied back to a
+ * person. A wrong value corrupts that provenance on every row and produces no
+ * error at all, which is exactly the kind of fault worth spending an endpoint
+ * on.
+ *
+ * The access token is issued for one channel, so asking LINE to verify it
+ * returns the true channel id to compare against.
+ */
+api.get("/health/config", async (c) => {
+  const configuredChannelId = c.env.LINE_CHANNEL_ID ?? "";
+  const configuredProviderId = c.env.LINE_PROVIDER_ID ?? "";
+
+  // LINE has two verification endpoints and which one applies depends on how
+  // the token was issued: long-lived tokens POST to /v2/oauth/verify, while
+  // tokens with a user-specified expiry GET /oauth2/v2.1/verify. Both return
+  // client_id, and we do not control which kind was generated, so try each.
+  const token = c.env.LINE_CHANNEL_ACCESS_TOKEN ?? "";
+  let reportedChannelId: string | null = null;
+  let error: string | null = null;
+
+  async function readClientId(res: Response): Promise<boolean> {
+    const body = (await res.json()) as { client_id?: string; error_description?: string };
+    if (res.ok && body.client_id) {
+      reportedChannelId = body.client_id;
+      return true;
+    }
+    error = body.error_description ?? `HTTP ${res.status}`;
+    return false;
+  }
+
+  try {
+    const longLived = await fetch("https://api.line.me/v2/oauth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ access_token: token }).toString(),
+    });
+    if (!(await readClientId(longLived))) {
+      const v21 = await fetch(
+        `https://api.line.me/oauth2/v2.1/verify?access_token=${encodeURIComponent(token)}`,
+      );
+      if (await readClientId(v21)) error = null;
+    } else {
+      error = null;
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+
+  const channelIdMatches = reportedChannelId !== null && reportedChannelId === configuredChannelId;
+
+  return c.json({
+    configuredChannelId,
+    configuredProviderId,
+    reportedChannelId,
+    channelIdMatches,
+    // A provider id equal to the channel id is almost certainly a copy of the
+    // wrong value: they are separate identifiers.
+    providerLooksLikeChannel:
+      configuredProviderId !== "" && configuredProviderId === configuredChannelId,
+    error,
+  });
+});
+
 api.get("/health/identity", async (c) => {
   const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
 

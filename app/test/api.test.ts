@@ -217,6 +217,59 @@ describe("CSV export", () => {
   });
 });
 
+describe("config health", () => {
+  const originalFetch = globalThis.fetch;
+
+  function mockVerify(clientId: string) {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ client_id: clientId, expires_in: 100 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+  }
+
+  // A wrong channel id corrupts the provenance stamped on every confirmation
+  // and raises no error anywhere, so it is worth detecting explicitly.
+  it("flags a configured channel id that disagrees with LINE", async () => {
+    mockVerify("9999999999");
+    try {
+      const body = (await (await call("/api/health/config")).json()) as {
+        channelIdMatches: boolean;
+        reportedChannelId: string;
+      };
+      expect(body.reportedChannelId).toBe("9999999999");
+      expect(body.channelIdMatches).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("confirms a matching channel id", async () => {
+    mockVerify("test_channel");
+    try {
+      const body = (await (await call("/api/health/config")).json()) as { channelIdMatches: boolean };
+      expect(body.channelIdMatches).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  // Provider and channel are separate identifiers; equal values mean one was
+  // pasted into both fields.
+  it("flags a provider id that is really a copy of the channel id", async () => {
+    mockVerify("test_channel");
+    try {
+      const body = (await (await call("/api/health/config")).json()) as {
+        providerLooksLikeChannel: boolean;
+      };
+      // The test environment sets both to the same value on purpose.
+      expect(body.providerLooksLikeChannel).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 describe("identity health", () => {
   it("reports a clean window as healthy", async () => {
     const res = await call("/api/health/identity");

@@ -12,7 +12,7 @@ export default defineConfig({
             TEST_MIGRATIONS: migrations,
             LINE_CHANNEL_SECRET: "test_channel_secret",
             LINE_CHANNEL_ACCESS_TOKEN: "test_channel_access_token",
-            LINE_PROVIDER_ID: "test_provider",
+            LINE_PROVIDER_ID: "test_channel",
             LINE_CHANNEL_ID: "test_channel",
           },
         },

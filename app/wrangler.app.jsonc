@@ -16,8 +16,8 @@
   ],
 
   "vars": {
-    "LINE_PROVIDER_ID": "",
-    "LINE_CHANNEL_ID": ""
+    "LINE_PROVIDER_ID": "2011286772",
+    "LINE_CHANNEL_ID": "2011286772"
   },
 
   // The dashboard bundle ships with this worker, so one deploy serves both the

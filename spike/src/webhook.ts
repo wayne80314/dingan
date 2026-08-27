@@ -167,6 +167,19 @@ async function probeAndRecordProfile(
   }
 }
 
+/** Does this body have the shape LINE actually sends (a `destination` string
+ * plus an `events` array)? Used only to classify signature failures -- a
+ * genuine LINE request that fails verification points at the channel secret,
+ * whereas a shapeless one is just noise hitting a public URL. */
+export function looksLikeLineWebhookBody(rawBody: string): boolean {
+  try {
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+    return typeof parsed.destination === "string" && Array.isArray(parsed.events);
+  } catch {
+    return false;
+  }
+}
+
 export async function handleWebhook(c: Context<{ Bindings: Env }>): Promise<Response> {
   const rawBody = await c.req.text();
   const signatureHeader = c.req.header("x-line-signature") ?? null;
@@ -176,7 +189,26 @@ export async function handleWebhook(c: Context<{ Bindings: Env }>): Promise<Resp
     // Signature failure is a deliberate security rejection, not an internal
     // error -- 401, not 200, and logged separately from the generic
     // "webhook" error context so /report can distinguish the two.
-    await safeInsertError(c.env, "signature", new Error("invalid or missing X-Line-Signature"));
+    //
+    // Record enough shape to tell the two very different causes apart, since
+    // "it 401s" is the single most likely thing to go wrong during setup:
+    //   - header absent + non-LINE-shaped body => internet background noise
+    //     (this URL is public; scanners POST to /webhook constantly)
+    //   - header present + LINE-shaped body    => the channel secret we hold
+    //     does not match the channel that sent this (wrong channel, stale
+    //     secret, or whitespace pasted into `wrangler secret put`)
+    // Deliberately records only shape -- never the body itself, which on real
+    // traffic is group chat content.
+    await safeInsertError(
+      c.env,
+      "signature",
+      new Error(
+        `signature rejected: header=${signatureHeader ? "present" : "absent"} ` +
+          `bodyBytes=${new TextEncoder().encode(rawBody).length} ` +
+          `lineShaped=${looksLikeLineWebhookBody(rawBody)} ` +
+          `secretConfigured=${c.env.LINE_CHANNEL_SECRET ? "yes" : "no"}`,
+      ),
+    );
     return c.text("invalid signature", 401);
   }
 

@@ -52,6 +52,41 @@ describe("POST /webhook idempotency + robustness", () => {
     expect(res.status).toBe(401);
   });
 
+  it("classifies a signature failure so setup problems are distinguishable from internet noise", async () => {
+    // LINE-shaped body + a present-but-wrong signature is the fingerprint of
+    // a channel-secret mismatch, which is the most common setup failure.
+    const body = webhookBody([textMessageEvent({ groupId: "Cabc" })]);
+    await postWebhook(body, "d2Jvb2dpZXdvb2dpZQ==");
+
+    const row = await testEnv.DB.prepare(
+      "SELECT message FROM errors WHERE context = 'signature' ORDER BY id DESC LIMIT 1",
+    ).first<{ message: string }>();
+    expect(row?.message).toContain("header=present");
+    expect(row?.message).toContain("lineShaped=true");
+    expect(row?.message).toContain("secretConfigured=yes");
+
+    // Whereas a bodyless, headerless POST -- what a scanner sends -- must be
+    // distinguishable at a glance.
+    await postWebhook("", null);
+    const noise = await testEnv.DB.prepare(
+      "SELECT message FROM errors WHERE context = 'signature' ORDER BY id DESC LIMIT 1",
+    ).first<{ message: string }>();
+    expect(noise?.message).toContain("header=absent");
+    expect(noise?.message).toContain("lineShaped=false");
+  });
+
+  it("never records the request body itself into the error log (it is chat content)", async () => {
+    const secretText = "客廳磁磚改用工程師推薦的款式";
+    const body = webhookBody([textMessageEvent({ groupId: "Cabc", text: secretText })]);
+    await postWebhook(body, "aW52YWxpZHNpZ25hdHVyZQ==");
+
+    const row = await testEnv.DB.prepare(
+      "SELECT message, stack FROM errors WHERE context = 'signature' ORDER BY id DESC LIMIT 1",
+    ).first<{ message: string; stack: string | null }>();
+    expect(row?.message ?? "").not.toContain(secretText);
+    expect(row?.stack ?? "").not.toContain(secretText);
+  });
+
   it("stores one raw_events row per event on a valid signed batch, and returns 200", async () => {
     const events = [
       textMessageEvent({ groupId: "Cabc", webhookEventId: "wh-idem-1" }),

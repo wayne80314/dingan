@@ -2,17 +2,15 @@
 
 給 Wayne 本人操作。程式碼與本地驗證（`npm run typecheck`、`npx vitest run`）已完成。
 
-> ## 目前進度（2026-08-27）
+> ## 狀態：F0 已完成（2026-08-27）
 >
-> **Cloudflare 側已全部完成並上線**：D1 建好且套用 schema、R2 bucket 建好、
-> workers.dev 子網域註冊完成、`PANEL_TOKEN` 已設定、Worker 已部署，
-> 線上端點冒煙測試通過（`/health` 200、未授權存取擋 401、`/report` 正常）。
-> 實際網址與 `PANEL_TOKEN` 記在 **`DEPLOYMENT.local.md`**（該檔已 gitignore，不會進版控）。
+> 全部設定完畢並實際跑完測試矩陣，結論見 **[`docs/spike-results.md`](./docs/spike-results.md)**。
+> 網址與 `PANEL_TOKEN` 記在 `DEPLOYMENT.local.md`（已 gitignore）。
 >
-> **還沒做的只剩 LINE 這一段**（需要你的 LINE 帳號，無法代辦）：
-> 下方第 1 節建立 channel → 設定兩個 LINE 密鑰 → 重新部署 → 填 Webhook URL → 跑測試矩陣。
->
-> 在設定 `LINE_CHANNEL_SECRET` 之前，`/webhook` 對所有請求都回 401 是預期行為（簽章一定驗不過）。
+> 以下步驟保留給：**重建環境**（換帳號、換區域、災難復原）、
+> **補測剩餘項目**（卡片轉傳重放、退群後查詢、封鎖後點擊、redelivery），
+> 以及 M0 階段的**合成監控**（每日自動推卡驗證 `userId` 仍然存在——
+> 這是 LINE 若悄悄改變行為時唯一能當天發現的手段）。
 
 ## 0. 你需要準備的東西
 

@@ -11,7 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "dingan-spike"
-database_id = "REPLACE_AFTER_D1_CREATE"
+database_id = "f530f89a-baba-4ef5-bac4-adbc0303ccd6"
 
 [[r2_buckets]]
 binding = "MEDIA"

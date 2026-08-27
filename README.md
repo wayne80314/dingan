@@ -28,7 +28,8 @@
 
 ## 從這裡開始
 
-- **想知道技術驗證測出什麼** → [`docs/spike-results.md`](./docs/spike-results.md) ← 本階段最重要的產出
+- **要開工做產品** → [`docs/m0-plan.md`](./docs/m0-plan.md) ← 分階段實作計畫，含第一個里程碑的完整 schema 與流程規格
+- **想知道技術驗證測出什麼** → [`docs/spike-results.md`](./docs/spike-results.md)
 - **要看正式產品規格** → [`docs/architecture.md`](./docs/architecture.md)、[`docs/pricing.md`](./docs/pricing.md)、[`docs/privacy-notice.md`](./docs/privacy-notice.md)
 - **要重跑或擴充 Spike** → [`RUNBOOK.md`](./RUNBOOK.md)、[`docs/spike-protocol.md`](./docs/spike-protocol.md)
 - **要找更多設計公司談試點** → [`pitch/index.html`](./pitch/index.html)、[`docs/pilot-plan.md`](./docs/pilot-plan.md)

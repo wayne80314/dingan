@@ -76,6 +76,42 @@
 三項各能作廢掉一週設計：(a) LINE Login/LIFF channel 與 Messaging channel 同 provider 時 `sub` 是否等於 messaging userId（**開 channel 是不可逆設定，即使 M0 不做 Login 也必須先驗、先選對 provider**）；(b) `X-Line-Retry-Key` 重送已成功請求的回應碼與保存期；(c) `GET /group/{id}/members/count` 是否受 verified 限制。順帶：D1 partial unique index、`PRAGMA foreign_keys`。
 **客戶端變化**：無。這兩天不可省。
 
+#### 執行結果（2026-08-27）
+
+驗證方式：在 spike worker 加一個 `/m0verify` 端點，對**真實遠端 D1 與真實 LINE API** 探測。
+不用 Miniflare——F0 已經兩次證明本地模擬比真實服務寬鬆。
+
+| 項目 | 結果 | 對設計的影響 |
+|---|---|---|
+| **(e) 外鍵強制** | ✅ **有強制**。`PRAGMA foreign_keys` 透過 binding 讀到 `1`，插入孤兒列被 `SQLITE_CONSTRAINT_FOREIGNKEY` 拒絕 | **原設計猜錯了**（原假設「D1 預設關閉、需手動開」）。FK 可作為完整性的最後防線，但 migration 重建表時仍需注意順序 |
+| **(d) partial unique index** | ✅ **支援且語意正確**。重複 active 被拒，同群組的歷史列可共存 | `line_group` 的「同群組僅一筆 active 綁定、歷史保留可查」設計成立 |
+| **batch 原子性** | ✅ **整批回滾**。三句中第二句違反 PK，事後表中殘留 0 列 | publish 流程（snapshot + nonce + outbox）可用單一 `db.batch()` 保證原子性，**不需要**設計成可重入 |
+| **(c) members/count** | ✅ **未驗證帳號可用**。`members/ids` 回 403「Access to this API is not available for your account」證明本帳號非 verified/premium，而 `members/count` 同時回 200 `{"count":3}` | **可刪除「設計師手填群組人數」的降級路徑**。`recipient_count` 直接由 API 取得，計費記帳因此準確 |
+| **members/count 是否含機器人** | ✅ **不含**。測試群組實際 4 個成員（3 人 + 機器人），`members/count` 回 `3` | **正好等於計費收件人數**（機器人不收自己發的訊息）。`recipient_count` 可直接採用 API 回傳值，**不需要 −1 調整**；若誤以為含 bot 而自行減一，用量記帳會系統性少計 |
+| **X-Line-Retry-Key 視覺確認** | ✅ 群組內只出現一則測試訊息（非兩則） | API 的 409 去重行為與實際送達一致，不只是回應碼層面的假象 |
+| **(b) X-Line-Retry-Key** | ✅ **確實去重，且優於預期**。第一次 200；同鍵重送回 **409「The retry key is already accepted」，且回應 body 帶原始 `sentMessages` 與 message id** | outbox 在不確定狀態下可安全用同一 retry key 重試：**409 視同成功，並可從回應撿回原始 message id**。這正是 outbox 最需要的性質 |
+| **(a) LINE Login `sub`** | ⏳ **待驗**（需建立 LINE Login channel，屬不可逆的 provider 設定） | 決定 LIFF 降級路徑是否可行。詳見下方待辦 |
+
+**附帶發現**：D1 的 HTTP query API（`wrangler d1 execute`）**拒絕 PRAGMA 語句**（回 code 7403），
+但透過 Worker binding 執行 `PRAGMA foreign_keys` 正常。任何需要 PRAGMA 的診斷都得走 Worker，不能用 CLI。
+
+#### (a) 尚待執行：LINE Login channel 驗證
+
+**為何不可省**：Messaging channel 與 Login channel 的 provider 歸屬是**不可逆設定**。
+若兩者不在同一 provider 下，`sub`（Login 回傳的使用者識別）與 messaging `userId` **不是同一個值**，
+那麼「偵測到 postback 缺 userId 時降級到 LIFF 補身分」這條保險絲會整條失效——
+而那是 [`spike-results.md`](./spike-results.md) 指出的未文件化行為風險的唯一備援。
+
+**步驟**：
+1. 在**與現有 Messaging channel 相同的 provider** 下建立一個 LINE Login channel
+2. 建一個最小 LIFF app（endpoint 可指向 spike worker 的驗證頁）
+3. 用測試帳號在群組內開啟 LIFF → 取得 ID token → 解出 `sub`
+4. 比對 `sub` 是否等於該帳號在 webhook 中出現的 `userId`
+   （已知值：Wayne = `U097bdaa0f1e6b00ea4e9a10ae2146aed`、洪米奇 = `Udfbad354770791067b243a5d7552bf7b`）
+
+**判讀**：相等 → LIFF 降級路徑成立，照計畫保留為保險絲。
+不相等 → 需要另建 userId 對應表，或放棄 LIFF 改用「請業主在群組發文字訊息確認」作為唯一降級路徑。
+
 ### M0.1 — LINE 迴路打通（2 週）
 
 **交付**：Wayne 用 SQL 建卡 → bot 推 Flex 決策卡到真實群組 → 業主點確認 → confirmation 落庫 → 群內 3 秒內出現「✅ 陳大明 於 08/27 14:03 確認 D-001」→ 儀表板（Cloudflare Access 保護的單頁）看得到卡片列表與確認明細（含 identity 徽章）。訊息與圖片全量入庫／入 R2。CSV 匯出。
@@ -374,7 +410,9 @@ GET  /api/health/user-id-rate                  → 7 日滾動 has_userId 比例
 ## 5. 未解問題（依重要性）
 
 1. **LIFF/Login `sub` 與 Messaging userId 同 provider 一致性** — 開 channel 是不可逆設定，M0.0 第一天必驗。錯了整條降級保險絲失效。
-2. **`X-Line-Retry-Key` 重送已成功請求的回應碼與保存期** — outbox 的地基，唯一無法靠自家程式碼保證的環節。
+2. ~~**`X-Line-Retry-Key` 重送行為**~~ — ✅ **已解答**（2026-08-27，見 M0.0 執行結果）：
+   同鍵重送回 409 且帶原始 `sentMessages`。409 視同成功。**保存期仍未測**（需相隔較長時間再重送同鍵才知道），
+   但 outbox 的重試窗口本來就以分鐘計，實務上不受影響。
 3. **超額後 LINE push 的實際行為**（回錯還是靜默丟棄）— 若是後者，決策卡推不出去而系統以為送成功。必須第一週實測。**同時決定：是否第一天就買中用量方案**（我的建議是買，NT$800 買掉整類風險）。
 4. **Browser Rendering 的 headless Chrome 是否有 CJK 字型** — 判斷「很可能沒有」，`@font-face`（subset Noto Sans TC 放 R2 同源）+ `await document.fonts.ready` 是備妥的解法，M0.3 第一天驗。
 5. **`members/count` 是否受 verified 限制** — 影響 `recipient_count`。若受限，M0 用儀表板手填人數（設計師知道自己群裡幾個人），這是可接受的降級。

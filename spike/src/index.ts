@@ -3,6 +3,7 @@ import type { Env } from "./types";
 import { handleWebhook } from "./webhook";
 import { handlePanelGet, handlePanelPush } from "./panel";
 import { handleReport } from "./report";
+import { handleM0Verify } from "./m0verify";
 import { safeInsertError } from "./db";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -13,6 +14,10 @@ app.post("/webhook", handleWebhook);
 app.get("/panel", handlePanelGet);
 app.post("/panel/push", handlePanelPush);
 app.get("/report", handleReport);
+
+// M0.0 verification sprint -- temporary, remove once the answers are
+// recorded in docs/m0-plan.md.
+app.get("/m0verify", handleM0Verify);
 
 // Defense-in-depth backstop: even if a bug somewhere upstream of
 // handleWebhook's own try/catch layers throws, /webhook must still answer

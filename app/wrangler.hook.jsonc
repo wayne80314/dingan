@@ -1,0 +1,35 @@
+{
+  // Webhook worker. Deployed separately from the dashboard worker so that
+  // shipping a dashboard change can never disturb LINE ingestion.
+  "name": "dingan-hook",
+  "main": "src/hook/index.ts",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dingan",
+      "database_id": "REPLACE_AFTER_D1_CREATE"
+    }
+  ],
+
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "dingan-media" },
+    // Verbatim webhook bodies, written before anything is parsed. R2 and D1
+    // are unlikely to fail together, so a body preserved here is recoverable
+    // even if the database write behind it did not happen.
+    { "binding": "RAW", "bucket_name": "dingan-raw" }
+  ],
+
+  "vars": {
+    // Non-secret identifiers. LINE user ids are scoped to a provider, so these
+    // are recorded alongside every identity for later interpretation.
+    "LINE_PROVIDER_ID": "",
+    "LINE_CHANNEL_ID": ""
+  }
+
+  // Secrets are set with `wrangler secret put`, never in this file:
+  //   LINE_CHANNEL_SECRET
+  //   LINE_CHANNEL_ACCESS_TOKEN
+}

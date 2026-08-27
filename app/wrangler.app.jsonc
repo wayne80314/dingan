@@ -7,7 +7,7 @@
   "compatibility_flags": ["nodejs_compat"],
 
   "d1_databases": [
-    { "binding": "DB", "database_name": "dingan", "database_id": "REPLACE_AFTER_D1_CREATE" }
+    { "binding": "DB", "database_name": "dingan", "database_id": "325c87af-f6c7-413a-b0fa-ae1161152d35" }
   ],
 
   "r2_buckets": [

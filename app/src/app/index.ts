@@ -16,6 +16,17 @@ const app = new Hono<{ Bindings: Env }>();
 app.get("/health", (c) => c.text("ok"));
 app.route("/api", api);
 
+// The dashboard keeps its view state in memory rather than in the URL, so a
+// path other than "/" only ever comes from a mistyped or stale link. Send
+// those to the app rather than a bare 404. API paths never reach here: they
+// matched above, and an unknown /api route should stay a 404 so a broken
+// client call fails loudly instead of receiving HTML.
+app.notFound((c) =>
+  c.req.path.startsWith("/api")
+    ? c.json({ error: "not found" }, 404)
+    : c.redirect("/", 302),
+);
+
 export default {
   fetch: app.fetch,
 

@@ -42,6 +42,50 @@ async function findGroup(env: Env, lineGroupId: string): Promise<GroupRow | null
 }
 
 /**
+ * Registers a group we are hearing from but have no record of.
+ *
+ * `join` only fires at the moment the bot is added, so a group the bot was
+ * already in when this system started has no join event to replay -- and
+ * without a row here, its messages are dropped and it never appears in the
+ * dashboard to be claimed. The group would be permanently unusable, with
+ * nothing in the interface to suggest why.
+ *
+ * Only metadata is recorded. The privacy gate is unchanged: the group lands in
+ * 'unclaimed', so message content is still not stored until someone assigns it
+ * to a project.
+ */
+async function registerUnseenGroup(env: Env, lineGroupId: string): Promise<GroupRow | null> {
+  const now = Date.now();
+  const summary = await getGroupSummary(env, lineGroupId);
+  const count = await getGroupMemberCount(env, lineGroupId);
+
+  await unscoped(env)
+    .prepare(
+      `INSERT INTO line_group
+         (id, line_provider_id, line_channel_id, line_group_id, group_name_snapshot,
+          member_count, member_count_synced_at, status, joined_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'unclaimed', ?)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(
+      newId("grp"),
+      env.LINE_PROVIDER_ID,
+      env.LINE_CHANNEL_ID,
+      lineGroupId,
+      summary.groupName,
+      count.count,
+      count.ok ? now : null,
+      // Not a real join time -- it is when the group first became known. The
+      // dashboard labels this as "first seen" rather than claiming precision
+      // it does not have.
+      now,
+    )
+    .run();
+
+  return findGroup(env, lineGroupId);
+}
+
+/**
  * Records that the bot was added to a group, and sends the personal-data
  * notice.
  *
@@ -220,7 +264,7 @@ export async function handleMessage(env: Env, ev: ParsedEvent): Promise<void> {
   const lineUserId = typeof source?.userId === "string" ? source.userId : null;
   if (!lineGroupId) return;
 
-  const group = await findGroup(env, lineGroupId);
+  const group = (await findGroup(env, lineGroupId)) ?? (await registerUnseenGroup(env, lineGroupId));
   if (!group) return;
 
   // The privacy gate. An unclaimed group's content is never written down --

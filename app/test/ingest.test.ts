@@ -89,9 +89,32 @@ describe("the privacy gate", () => {
     expect(row?.has_user_id).toBe(1);
   });
 
-  it("ignores messages from a group it has never been added to", async () => {
-    await ingestEvent(testEnv, messageEvent("hello"));
+  // `join` only fires when the bot is added, so a group the bot was already in
+  // has no join event to replay. Without registering it here, its messages
+  // would be dropped and it would never appear in the dashboard to be claimed
+  // -- permanently unusable, with nothing in the interface to explain why.
+  it("registers an unfamiliar group so it can be claimed, without storing content", async () => {
+    await ingestEvent(testEnv, messageEvent("這個群組系統沒見過"));
+
+    const group = await testEnv.DB.prepare(
+      `SELECT status, organization_id FROM line_group WHERE line_group_id = ?`,
+    ).bind(LINE_GROUP).first<{ status: string; organization_id: string | null }>();
+
+    expect(group?.status).toBe("unclaimed");
+    expect(group?.organization_id).toBeNull();
+    // The privacy gate still holds: registering the group is not permission to
+    // record what is said in it.
     expect(await messageCount()).toBe(0);
+  });
+
+  it("does not create a second row when more messages arrive from that group", async () => {
+    await ingestEvent(testEnv, messageEvent("第一則"));
+    await ingestEvent(testEnv, messageEvent("第二則"));
+
+    const row = await testEnv.DB.prepare(
+      `SELECT COUNT(*) AS n FROM line_group WHERE line_group_id = ?`,
+    ).bind(LINE_GROUP).first<{ n: number }>();
+    expect(row?.n).toBe(1);
   });
 });
 

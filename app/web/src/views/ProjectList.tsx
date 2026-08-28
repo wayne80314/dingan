@@ -13,6 +13,9 @@ export function ProjectList({ onOpenProject }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ name: "", clientName: "", contractAmount: "" });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api.projects().then((r) => setProjects(r.projects)).catch((e: Error) => setError(e.message));
@@ -29,6 +32,28 @@ export function ProjectList({ onOpenProject }: Props) {
       setError((e as Error).message);
     } finally {
       setClaiming(null);
+    }
+  };
+
+  const createProject = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      // Entered in whole NT$, stored in cents.
+      const amount = form.contractAmount.replace(/[,\s]/g, "");
+      await api.createProject({
+        name: form.name.trim(),
+        clientName: form.clientName.trim() || undefined,
+        contractAmountIncTaxCents: amount ? Math.round(Number(amount) * 100) : undefined,
+      });
+      setForm({ name: "", clientName: "", contractAmount: "" });
+      setCreating(false);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -69,29 +94,89 @@ export function ProjectList({ onOpenProject }: Props) {
                 </div>
               </div>
               <div>
-                <select
-                  defaultValue=""
-                  disabled={claiming === g.id || projects.length === 0}
-                  onChange={(e) => e.target.value && claim(g, e.target.value)}
-                >
-                  <option value="" disabled>
-                    指派到案子…
-                  </option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
+                {projects.length === 0 ? (
+                  // A greyed-out control with no explanation is where a first-time
+                  // user gets stuck: the group is waiting and nothing says why it
+                  // cannot be assigned.
+                  <span className="muted">請先建立案子</span>
+                ) : (
+                  <select
+                    defaultValue=""
+                    disabled={claiming === g.id}
+                    onChange={(e) => e.target.value && claim(g, e.target.value)}
+                  >
+                    <option value="" disabled>
+                      指派到案子…
                     </option>
-                  ))}
-                </select>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <h2 style={{ fontSize: "1.05rem" }}>案子</h2>
+      <div className="row" style={{ alignItems: "center" }}>
+        <h2 style={{ fontSize: "1.05rem" }}>案子</h2>
+        {!creating && (
+          <button className="btn small" onClick={() => setCreating(true)}>
+            新增案子
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <div className="card">
+          <div className="title" style={{ marginBottom: "0.6rem" }}>新增案子</div>
+          <div style={{ display: "grid", gap: "0.6rem", maxWidth: 420 }}>
+            <label>
+              <div className="muted">案名（必填）</div>
+              <input
+                autoFocus
+                value={form.name}
+                placeholder="例：大安區 3 房翻新"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <label>
+              <div className="muted">業主稱謂</div>
+              <input
+                value={form.clientName}
+                placeholder="例：陳大明"
+                onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <label>
+              <div className="muted">合約金額（含稅，新台幣元）</div>
+              <input
+                inputMode="numeric"
+                value={form.contractAmount}
+                placeholder="例：1850000"
+                onChange={(e) => setForm({ ...form, contractAmount: e.target.value })}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <div className="toolbar" style={{ marginBottom: 0 }}>
+              <button className="btn" onClick={createProject} disabled={saving || !form.name.trim()}>
+                {saving ? "建立中…" : "建立"}
+              </button>
+              <button className="btn ghost" onClick={() => setCreating(false)} disabled={saving}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {projects.length === 0 ? (
-        <div className="empty">還沒有案子。</div>
+        <div className="empty">還沒有案子。先建立一個，才能把群組指派進去。</div>
       ) : (
         projects.map((p) => (
           <div key={p.id} className="card clickable" onClick={() => onOpenProject(p)}>

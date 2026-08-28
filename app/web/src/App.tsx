@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { Project } from "./api";
+import { useEffect, useState } from "react";
+import { api, type Project } from "./api";
+import { Setup } from "./views/Setup";
 import { ProjectList } from "./views/ProjectList";
 import { DecisionList } from "./views/DecisionList";
 import { DecisionDetail } from "./views/DecisionDetail";
@@ -11,9 +12,20 @@ type View =
 
 export function App() {
   const [view, setView] = useState<View>({ name: "projects" });
+  // null = still loading, false = no organization yet and setup must run first.
+  const [ready, setReady] = useState<boolean | null>(null);
   // Bumped after a publish so the list behind reflects the new state when the
   // user navigates back.
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    api
+      .org()
+      .then((r) => setReady(r.organization !== null))
+      // A failure here is more likely to be a missing organization than a
+      // broken deployment, and setup is harmless to show either way.
+      .catch(() => setReady(false));
+  }, []);
 
   return (
     <div className="app">
@@ -22,7 +34,7 @@ export function App() {
         <span className="sub">裝修決策記錄</span>
       </header>
 
-      {view.name !== "projects" && (
+      {ready === true && view.name !== "projects" && (
         <div className="crumbs">
           <button onClick={() => setView({ name: "projects" })}>案子</button>
           {" ／ "}
@@ -39,11 +51,15 @@ export function App() {
         </div>
       )}
 
-      {view.name === "projects" && (
+      {ready === null && <div className="empty">載入中…</div>}
+
+      {ready === false && <Setup onDone={() => setReady(true)} />}
+
+      {ready === true && view.name === "projects" && (
         <ProjectList onOpenProject={(project) => setView({ name: "decisions", project })} />
       )}
 
-      {view.name === "decisions" && (
+      {ready === true && view.name === "decisions" && (
         <DecisionList
           project={view.project}
           reloadKey={reloadKey}
@@ -53,7 +69,7 @@ export function App() {
         />
       )}
 
-      {view.name === "decision" && (
+      {ready === true && view.name === "decision" && (
         <DecisionDetail
           decisionId={view.decisionId}
           onPublished={() => setReloadKey((n) => n + 1)}

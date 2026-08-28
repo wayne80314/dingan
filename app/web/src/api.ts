@@ -144,8 +144,27 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  tax_id: string | null;
+  timezone: string;
+}
+
 export const api = {
+  org: () => get<{ organization: Organization | null }>("/org"),
+
+  createOrg: (body: { name: string; taxId?: string }) =>
+    post<{ ok: true; id: string; name: string }>("/org", body),
+
   projects: () => get<{ projects: Project[] }>("/projects"),
+
+  createProject: (body: {
+    name: string;
+    clientName?: string;
+    siteAddress?: string;
+    contractAmountIncTaxCents?: number;
+  }) => post<{ ok: true; id: string; name: string }>("/projects", body),
 
   decisions: (projectId: string) =>
     get<{ decisions: DecisionSummary[]; confirmedTotals: ConfirmedTotals }>(

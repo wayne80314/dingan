@@ -127,6 +127,85 @@ describe("tenant isolation", () => {
   });
 });
 
+describe("creating a project", () => {
+  // Without this the dashboard is a dead end on first use: a group arrives
+  // waiting to be assigned and there is nothing to assign it to.
+  it("creates a project under the requesting organization", async () => {
+    const t = await seedTenant("aaa");
+    const res = await call("/api/projects", t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "信義路王宅", clientName: "王小姐", contractAmountIncTaxCents: 185000000 }),
+    });
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      `SELECT organization_id, client_name, contract_amount_inc_tax_cents
+         FROM project WHERE name = ?`,
+    ).bind("信義路王宅").first<{ organization_id: string; client_name: string; contract_amount_inc_tax_cents: number }>();
+    expect(row?.organization_id).toBe(t.orgId);
+    expect(row?.client_name).toBe("王小姐");
+    expect(row?.contract_amount_inc_tax_cents).toBe(185000000);
+  });
+
+  it("rejects a project with no name", async () => {
+    const t = await seedTenant("aaa");
+    const res = await call("/api/projects", t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not let one organization create a project inside another", async () => {
+    const a = await seedTenant("aaa");
+    const b = await seedTenant("bbb");
+
+    await call("/api/projects", b.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "越權建立" }),
+    });
+
+    // The tenant comes from the caller, never from the body, so it lands under
+    // b regardless of what a is doing.
+    const rows = await call("/api/projects", a.orgId);
+    const body = (await rows.json()) as { projects: Array<{ name: string }> };
+    expect(body.projects.map((p) => p.name)).not.toContain("越權建立");
+  });
+
+  it("makes the new project immediately claimable by a group", async () => {
+    const t = await seedTenant("aaa");
+    const created = (await (
+      await call("/api/projects", t.orgId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "新案子" }),
+      })
+    ).json()) as { id: string };
+
+    const groupId = newId("grp");
+    await testEnv.DB.prepare(
+      `INSERT INTO line_group (id, line_provider_id, line_channel_id, line_group_id, status, joined_at)
+       VALUES (?, 'p', 'c', 'Cfresh000000000000000000000001', 'unclaimed', ?)`,
+    ).bind(groupId, Date.now()).run();
+
+    const res = await call(`/api/groups/${groupId}/claim`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: created.id }),
+    });
+    expect(res.status).toBe(200);
+
+    const group = await testEnv.DB.prepare(
+      `SELECT status, project_id FROM line_group WHERE id = ?`,
+    ).bind(groupId).first<{ status: string; project_id: string }>();
+    expect(group?.status).toBe("active");
+    expect(group?.project_id).toBe(created.id);
+  });
+});
+
 describe("decision list", () => {
   it("totals only confirmed amounts", async () => {
     const t = await seedTenant("aaa");

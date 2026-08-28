@@ -12,6 +12,7 @@ import { withOrg, unscoped } from "../core/db";
 import { publishDecision } from "../core/publish";
 import { dispatchOne } from "../core/outbox";
 import { formatTwd } from "../core/money";
+import { newId } from "../core/ids";
 import type { Env } from "../core/types";
 
 export const api = new Hono<{ Bindings: Env }>();
@@ -31,6 +32,55 @@ async function resolveOrgId(c: { req: { header: (k: string) => string | undefine
     .first<{ id: string }>();
   return row?.id ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// First-run setup
+// ---------------------------------------------------------------------------
+
+/** The firm this instance belongs to, or null before anything is set up. */
+api.get("/org", async (c) => {
+  const row = await unscoped(c.env)
+    .prepare(
+      `SELECT id, name, tax_id, timezone FROM organization
+        WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+    )
+    .first<Record<string, unknown>>();
+  return c.json({ organization: row ?? null });
+});
+
+/**
+ * Registers the firm.
+ *
+ * Everything else hangs off an organization row, so without a way to create
+ * one the dashboard cannot be used at all on a fresh deployment -- the first
+ * screen would offer a group waiting to be assigned and no way to proceed.
+ * Doing it in the interface rather than by hand-written SQL also means the
+ * provider and channel ids are captured from configuration, where they have
+ * already been verified, instead of retyped.
+ */
+api.post("/org", async (c) => {
+  const existing = await unscoped(c.env)
+    .prepare(`SELECT id FROM organization WHERE deleted_at IS NULL LIMIT 1`)
+    .first<{ id: string }>();
+  // M0.1 serves one firm. Refusing a second here keeps a stray request from
+  // creating an organization nothing points at.
+  if (existing) return c.json({ error: "organization already configured", id: existing.id }, 409);
+
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string; taxId?: string };
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return c.json({ error: "公司名稱為必填" }, 400);
+
+  const id = newId("org");
+  await unscoped(c.env)
+    .prepare(
+      `INSERT INTO organization (id, name, tax_id, line_provider_id, line_channel_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, name, body.taxId?.trim() || null, c.env.LINE_PROVIDER_ID ?? "", c.env.LINE_CHANNEL_ID ?? "", Date.now())
+    .run();
+
+  return c.json({ ok: true, id, name });
+});
 
 // ---------------------------------------------------------------------------
 // Groups awaiting assignment
@@ -111,6 +161,57 @@ api.get("/projects", async (c) => {
        FROM project WHERE {{ORG}} ORDER BY created_at DESC`,
   );
   return c.json({ projects });
+});
+
+/**
+ * Creates a project.
+ *
+ * Without this the dashboard is a dead end on first use: a group arrives
+ * waiting to be assigned, and there is nothing to assign it to. Kept to the
+ * few fields a designer knows when a job starts -- the rest is editable once
+ * the work is under way.
+ */
+api.post("/projects", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as {
+    name?: string;
+    clientName?: string;
+    siteAddress?: string;
+    contractNo?: string;
+    contractAmountIncTaxCents?: number;
+  };
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return c.json({ error: "案名為必填" }, 400);
+
+  const id = newId("prj");
+  const now = Date.now();
+
+  // An insert carries its tenant as a written value rather than a filter, so
+  // there is no predicate to forget and nothing for withOrg to enforce. The
+  // org id comes from the authenticated caller, never from the request body.
+  await unscoped(c.env)
+    .prepare(
+      `INSERT INTO project
+         (id, organization_id, name, client_name, site_address, contract_no,
+          contract_amount_inc_tax_cents, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      orgId,
+      name,
+      body.clientName?.trim() || null,
+      body.siteAddress?.trim() || null,
+      body.contractNo?.trim() || null,
+      typeof body.contractAmountIncTaxCents === "number" ? body.contractAmountIncTaxCents : null,
+      now,
+    )
+    .run();
+
+  return c.json({ ok: true, id, name });
 });
 
 interface DecisionListRow {

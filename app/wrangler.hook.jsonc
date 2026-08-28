@@ -25,7 +25,7 @@
   "vars": {
     // Non-secret identifiers. LINE user ids are scoped to a provider, so these
     // are recorded alongside every identity for later interpretation.
-    "LINE_PROVIDER_ID": "2011286772",
+    "LINE_PROVIDER_ID": "2005479817",
     "LINE_CHANNEL_ID": "2011286772"
   }
 

@@ -120,9 +120,11 @@ export function withOrg(env: Env, organizationId: string): ScopedDb {
  * Unscoped access, for work that legitimately spans tenants.
  *
  * Legitimate uses are: webhook ingestion before a group has been claimed into
- * a project, outbox dispatch, retry sweepers, and diagnostics. Anything
- * serving a dashboard request belongs in `withOrg` instead -- if a route needs
- * this, the reason should be obvious from the surrounding code.
+ * a project, outbox dispatch, retry sweepers, diagnostics, and inserts -- an
+ * insert carries its tenant as a written value rather than a filter, so there
+ * is no predicate to forget. Any dashboard *read* belongs in `withOrg`
+ * instead; if a route needs this, the reason should be obvious from the
+ * surrounding code.
  */
 export function unscoped(env: Env): D1Database {
   return env.DB;

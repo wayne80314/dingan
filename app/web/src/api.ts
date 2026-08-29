@@ -225,6 +225,12 @@ export const api = {
 
   digest: (id: string) => get<DigestDetail>(`/digests/${id}`),
 
+  runDigest: (projectId: string, hours?: number) =>
+    post<{ ok: true; digestId: string; itemCount: number; dropped: Array<{ title: string; reason: string }> }>(
+      `/projects/${projectId}/digests/run`,
+      hours ? { hours } : {},
+    ),
+
   editDigest: (id: string, summaryText: string) =>
     post<{ ok: true }>(`/digests/${id}/edit`, { summaryText }),
 

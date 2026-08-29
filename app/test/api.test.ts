@@ -349,6 +349,62 @@ describe("config health", () => {
   });
 });
 
+describe("running a digest on demand", () => {
+  it("refuses when the project has no owner group bound", async () => {
+    const t = await seedTenant("aaa");
+    await testEnv.DB.prepare(`UPDATE line_group SET status = 'left' WHERE id = ?`)
+      .bind(t.groupRowId).run();
+
+    const res = await call(`/api/projects/${t.projectId}/digests/run`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // The manual path must not become a way around the notice: it runs the same
+  // gate the scheduler does.
+  it("refuses a group that has not been notified", async () => {
+    const t = await seedTenant("aaa");
+    const res = await call(`/api/projects/${t.projectId}/digests/run`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain("個資告知");
+  });
+
+  it("reports a quiet window as its own outcome rather than a failure", async () => {
+    const t = await seedTenant("aaa");
+    await testEnv.DB.prepare(
+      `INSERT INTO consent_notice (line_group_id, notice_version, sent_at, created_at)
+       VALUES (?, 2, ?, ?)`,
+    ).bind(t.groupRowId, Date.now(), Date.now()).run();
+
+    const res = await call(`/api/projects/${t.projectId}/digests/run`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain("對話太少");
+  });
+
+  it("does not run a digest for another organization's project", async () => {
+    const a = await seedTenant("aaa");
+    const b = await seedTenant("bbb");
+
+    const res = await call(`/api/projects/${a.projectId}/digests/run`, b.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("identity health", () => {
   it("reports a clean window as healthy", async () => {
     const res = await call("/api/health/identity");

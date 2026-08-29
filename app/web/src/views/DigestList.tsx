@@ -40,6 +40,8 @@ export function DigestList({ project, onPromoted }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [hours, setHours] = useState(24);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     api
@@ -64,6 +66,29 @@ export function DigestList({ project, onPromoted }: Props) {
 
   if (error) return <div className="alert error">讀取失敗：{error}</div>;
   if (!digests) return <div className="empty">載入中…</div>;
+
+  const runNow = async () => {
+    setRunning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await api.runDigest(project.id, hours);
+      // Dropped items are reported rather than hidden: they are the model
+      // making claims the conversation did not support, and knowing how often
+      // that happens is part of judging whether to trust the rest.
+      const droppedNote =
+        r.dropped.length > 0
+          ? `　（${r.dropped.length} 項未通過查核已剔除或移除金額）`
+          : "";
+      setNotice(`已整理出 ${r.itemCount} 項重點${droppedNote}`);
+      setOpenId(r.digestId);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
 
   const save = async () => {
     if (!openId) return;
@@ -116,6 +141,21 @@ export function DigestList({ project, onPromoted }: Props) {
   return (
     <div>
       {notice && <div className="alert info">{notice}</div>}
+
+      <div className="toolbar">
+        <button className="btn" onClick={runNow} disabled={running}>
+          {running ? "整理中…" : "立即整理"}
+        </button>
+        <select value={hours} onChange={(e) => setHours(Number(e.target.value))} disabled={running}>
+          <option value={3}>最近 3 小時</option>
+          <option value={24}>最近 24 小時</option>
+          <option value={72}>最近 3 天</option>
+          <option value={168}>最近 7 天</option>
+        </select>
+        <span className="muted" style={{ alignSelf: "center" }}>
+          平常會在每晚自動整理；這裡可以馬上跑一次。
+        </span>
+      </div>
 
       {digests.length === 0 && (
         <div className="empty">

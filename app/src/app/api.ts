@@ -14,6 +14,7 @@ import { dispatchOne, enqueue } from "../core/outbox";
 import { formatTwd, splitTax } from "../core/money";
 import { newId, formatDecisionNo } from "../core/ids";
 import { ensureNoticeSent, getConsentState, markNoticeDelivered } from "../core/consent";
+import { runDigestForGroup } from "../core/digest";
 import type { Env } from "../core/types";
 
 export const api = new Hono<{ Bindings: Env }>();
@@ -408,6 +409,75 @@ api.get("/projects/:projectId/digests", async (c) => {
     c.req.param("projectId"),
   );
   return c.json({ digests });
+});
+
+/**
+ * Generates a digest now, instead of waiting for the evening run.
+ *
+ * Exists for testing and for the case where a designer wants the minutes
+ * before the scheduler gets to them. It goes through exactly the same path as
+ * the scheduled run -- including the consent gate -- so what it produces is
+ * what the nightly job would have produced, not a shortcut around it.
+ */
+api.post("/projects/:projectId/digests/run", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const db = withOrg(c.env, orgId);
+  const group = await db.first<{
+    id: string;
+    organization_id: string;
+    project_id: string;
+    line_group_id: string;
+    last_digest_to: number | null;
+  }>(
+    `SELECT g.id, g.organization_id, g.project_id, g.line_group_id,
+            (SELECT MAX(covered_to) FROM digest d WHERE d.line_group_id = g.id) AS last_digest_to
+       FROM line_group g
+      WHERE g.project_id = ? AND g.status = 'active' AND g.purpose = 'owner' AND g.{{ORG}}
+      ORDER BY g.claimed_at DESC LIMIT 1`,
+    c.req.param("projectId"),
+  );
+  if (!group) return c.json({ error: "這個案子還沒有綁定業主群組" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as { hours?: number };
+  // Defaults to a day. A manual run is usually "summarise what we just said",
+  // so it reaches back over the recent conversation rather than resuming the
+  // scheduler's cursor -- which would cover only the minutes since the last
+  // run and look like nothing happened.
+  const hours = typeof body.hours === "number" && body.hours > 0 && body.hours <= 168 ? body.hours : 24;
+  const now = Date.now();
+  const from = now - hours * 60 * 60 * 1000;
+
+  const result = await runDigestForGroup(
+    c.env,
+    {
+      id: group.id,
+      organization_id: group.organization_id,
+      project_id: group.project_id,
+      line_group_id: group.line_group_id,
+    },
+    from,
+    now,
+  );
+
+  // Each outcome is something the person who pressed the button needs to act
+  // on differently, so they are distinguished rather than collapsed into a
+  // generic failure.
+  if (result.status === "skipped_no_consent") {
+    return c.json(
+      { error: "這個群組還沒收到個資告知，尚不能整理對話。請確認告知訊息已送達群組。" },
+      409,
+    );
+  }
+  if (result.status === "skipped_quiet") {
+    return c.json({ error: `過去 ${hours} 小時內的對話太少，沒有可整理的內容。` }, 409);
+  }
+  if (result.status === "failed") {
+    return c.json({ error: `整理失敗：${result.error ?? "未知原因"}` }, 502);
+  }
+
+  return c.json({ ok: true, digestId: result.digestId, itemCount: result.itemCount, dropped: result.dropped });
 });
 
 api.get("/digests/:id", async (c) => {

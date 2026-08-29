@@ -17,6 +17,8 @@ export interface Env {
   LINE_PROVIDER_ID: string;
   LINE_CHANNEL_ID: string;
   LIFF_ID?: string;
+  /** Only the digest path needs this; absent elsewhere. */
+  ANTHROPIC_API_KEY?: string;
 }
 
 // ---------------------------------------------------------------------------

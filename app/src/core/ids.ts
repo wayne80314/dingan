@@ -51,6 +51,8 @@ export type IdPrefix =
   | "msg"
   | "obx"
   | "aud"
+  | "dig"
+  | "dgi"
   | "dl";
 
 export function newId(prefix: IdPrefix, nowMs: number = Date.now()): string {

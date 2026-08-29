@@ -9,7 +9,7 @@
 import { Hono } from "hono";
 import type { Env } from "../core/types";
 import { api } from "./api";
-import { dispatchDue } from "../core/outbox";
+import { runDailyDigests, runFrequentTasks, taipeiHour } from "../core/schedule";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -31,10 +31,26 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Sweeper. Picks up sends that failed or timed out earlier -- retrying with
-   * the same key is safe, since LINE refuses a key it already accepted.
+   * Runs every five minutes: retries pending sends, and marks consent notices
+   * delivered so a group becomes eligible for summarising only after it has
+   * actually been told.
+   *
+   * Once a day, in the evening, it also produces the daily minutes. The hour
+   * is checked here rather than configured as a second cron so there is one
+   * schedule to reason about, and because the window is a cursor -- a tick
+   * that misses its hour is picked up by the next day's run rather than
+   * losing the conversation.
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(dispatchDue(env, 50).then(() => undefined));
+    ctx.waitUntil(
+      (async () => {
+        await runFrequentTasks(env);
+
+        const hour = taipeiHour(Date.now());
+        if (hour === 21) {
+          await runDailyDigests(env);
+        }
+      })(),
+    );
   },
 };

@@ -21,6 +21,10 @@ export interface Fixture {
  * Ordered so children go before the rows they reference. */
 export async function resetDb(): Promise<void> {
   const tables = [
+    // Digest tables first: they reference decisions and groups.
+    "digest_item",
+    "digest",
+    "consent_notice",
     "confirmation",
     "decision_nonce",
     "decision_line_item",

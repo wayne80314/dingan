@@ -10,9 +10,10 @@
 import { Hono } from "hono";
 import { withOrg, unscoped } from "../core/db";
 import { publishDecision } from "../core/publish";
-import { dispatchOne } from "../core/outbox";
-import { formatTwd } from "../core/money";
-import { newId } from "../core/ids";
+import { dispatchOne, enqueue } from "../core/outbox";
+import { formatTwd, splitTax } from "../core/money";
+import { newId, formatDecisionNo } from "../core/ids";
+import { ensureNoticeSent, getConsentState, markNoticeDelivered } from "../core/consent";
 import type { Env } from "../core/types";
 
 export const api = new Hono<{ Bindings: Env }>();
@@ -143,6 +144,31 @@ api.post("/groups/:id/claim", async (c) => {
     )
     .bind(orgId, body.projectId, c.req.param("id"))
     .run();
+
+  // Claiming is the moment the group's conversation starts being recorded and
+  // becomes eligible for summarising abroad, so the notice goes out now rather
+  // than at some later point when the transfer has already happened.
+  const group = await unscoped(c.env)
+    .prepare(`SELECT line_group_id FROM line_group WHERE id = ?`)
+    .bind(c.req.param("id"))
+    .first<{ line_group_id: string }>();
+
+  if (group) {
+    const notice = await ensureNoticeSent(c.env, c.req.param("id"), group.line_group_id);
+    if (notice.queued) {
+      const row = await unscoped(c.env)
+        .prepare(`SELECT outbox_id FROM consent_notice WHERE line_group_id = ?`)
+        .bind(c.req.param("id"))
+        .first<{ outbox_id: string | null }>();
+      if (row?.outbox_id) {
+        c.executionCtx.waitUntil(
+          dispatchOne(c.env, row.outbox_id)
+            .then(() => markNoticeDelivered(c.env, row.outbox_id!))
+            .catch(() => undefined),
+        );
+      }
+    }
+  }
 
   return c.json({ ok: true });
 });
@@ -353,6 +379,239 @@ api.post("/decisions/:id/publish", async (c) => {
   }
 
   return c.json({ ok: true, version: result.version, contentSha256: result.contentSha256 });
+});
+
+// ---------------------------------------------------------------------------
+// Daily minutes
+// ---------------------------------------------------------------------------
+
+/** Whether a group has been told its conversation may be summarised abroad.
+ * Read by the interface to explain an absent digest rather than leaving it
+ * looking broken. */
+api.get("/groups/:id/consent", async (c) => {
+  const state = await getConsentState(c.env, c.req.param("id"));
+  return c.json(state);
+});
+
+api.get("/projects/:projectId/digests", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ digests: [] });
+
+  const digests = await withOrg(c.env, orgId).all(
+    `SELECT d.id, d.digest_date, d.message_count, d.segment_count, d.status,
+            d.summary_text, d.edited_at, d.published_at, d.error, d.created_at,
+            (SELECT COUNT(*) FROM digest_item i WHERE i.digest_id = d.id) AS item_count
+       FROM digest d
+      WHERE d.project_id = ? AND d.{{ORG}}
+      ORDER BY d.digest_date DESC
+      LIMIT 60`,
+    c.req.param("projectId"),
+  );
+  return c.json({ digests });
+});
+
+api.get("/digests/:id", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "not found" }, 404);
+
+  const db = withOrg(c.env, orgId);
+  const digest = await db.first(`SELECT * FROM digest WHERE id = ? AND {{ORG}}`, c.req.param("id"));
+  if (!digest) return c.json({ error: "not found" }, 404);
+
+  const items = await db.all(
+    `SELECT * FROM digest_item WHERE digest_id = ? AND {{ORG}} ORDER BY seq`,
+    c.req.param("id"),
+  );
+
+  // The messages each claim cites, so the designer can read the original
+  // rather than taking the summary's word for it.
+  const ids = new Set<string>();
+  for (const item of items) {
+    try {
+      for (const id of JSON.parse(String(item.source_message_ids ?? "[]")) as string[]) ids.add(id);
+    } catch {
+      // A malformed citation list means that item simply shows no sources.
+    }
+  }
+
+  let sources: Record<string, unknown>[] = [];
+  if (ids.size > 0) {
+    const placeholders = [...ids].map(() => "?").join(",");
+    sources = await db.all(
+      `SELECT line_message_id, display_name_snapshot, text_content, line_timestamp
+         FROM line_message
+        WHERE line_message_id IN (${placeholders}) AND {{ORG}}
+        ORDER BY line_timestamp`,
+      ...ids,
+    );
+  }
+
+  return c.json({ digest, items, sources });
+});
+
+/** Saves the designer's edits. The generated text stays in `raw_json`, so an
+ * edit never destroys the record of what the model actually produced. */
+api.post("/digests/:id/edit", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as { summaryText?: string };
+  if (typeof body.summaryText !== "string") return c.json({ error: "summaryText is required" }, 400);
+
+  const result = await withOrg(c.env, orgId).run(
+    `UPDATE digest
+        SET summary_text = ?, edited_at = ?,
+            status = CASE WHEN status = 'published' THEN status ELSE 'reviewed' END
+      WHERE id = ? AND {{ORG}}`,
+    body.summaryText,
+    Date.now(),
+    c.req.param("id"),
+  );
+  if ((result.meta.changes ?? 0) === 0) return c.json({ error: "not found" }, 404);
+  return c.json({ ok: true });
+});
+
+/**
+ * Publishes the minutes to the group.
+ *
+ * Only ever from a deliberate action: the whole point of holding the digest
+ * back is that a person checks it before the client sees it.
+ */
+api.post("/digests/:id/publish", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const db = withOrg(c.env, orgId);
+  const digest = await db.first<{
+    id: string;
+    project_id: string;
+    line_group_id: string;
+    digest_date: string;
+    summary_text: string | null;
+    status: string;
+  }>(
+    `SELECT id, project_id, line_group_id, digest_date, summary_text, status
+       FROM digest WHERE id = ? AND {{ORG}}`,
+    c.req.param("id"),
+  );
+  if (!digest) return c.json({ error: "not found" }, 404);
+  if (digest.status === "published") return c.json({ error: "already published" }, 409);
+  if (!digest.summary_text?.trim()) return c.json({ error: "沒有可發佈的內容" }, 400);
+
+  const group = await db.first<{ line_group_id: string; member_count: number | null }>(
+    `SELECT line_group_id, member_count FROM line_group WHERE id = ? AND {{ORG}}`,
+    digest.line_group_id,
+  );
+  if (!group) return c.json({ error: "group not found" }, 404);
+
+  const text =
+    `📋 ${digest.digest_date} 討論記錄\n\n${digest.summary_text.trim()}\n\n` +
+    `（本記錄由設計師整理後發佈，如有出入請直接在群組指正。）`;
+
+  const { outboxId } = await enqueue(c.env, {
+    organizationId: orgId,
+    projectId: digest.project_id,
+    lineGroupId: group.line_group_id,
+    kind: "digest",
+    messages: [{ type: "text", text }],
+    recipientCount: group.member_count ?? 1,
+    dedupeKey: `digest:${digest.id}`,
+  });
+
+  await db.run(
+    `UPDATE digest SET status = 'published', published_at = ?, published_outbox_id = ?
+      WHERE id = ? AND {{ORG}}`,
+    Date.now(),
+    outboxId,
+    digest.id,
+  );
+
+  c.executionCtx.waitUntil(dispatchOne(c.env, outboxId).then(() => undefined));
+  return c.json({ ok: true });
+});
+
+/**
+ * Turns one candidate into a decision-card draft.
+ *
+ * The only path from a summary to a record, and it stays manual: what the
+ * model produced is a suggestion, and it becomes something a client can be
+ * held to only after a person has written it as a decision and the client has
+ * confirmed it.
+ */
+api.post("/digest-items/:id/promote", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const db = withOrg(c.env, orgId);
+  const item = await db.first<{
+    id: string;
+    digest_id: string;
+    title: string;
+    detail: string | null;
+    amount_inc_tax_cents: number | null;
+    source_message_ids: string;
+    promoted_decision_id: string | null;
+  }>(
+    `SELECT id, digest_id, title, detail, amount_inc_tax_cents, source_message_ids,
+            promoted_decision_id
+       FROM digest_item WHERE id = ? AND {{ORG}}`,
+    c.req.param("id"),
+  );
+  if (!item) return c.json({ error: "not found" }, 404);
+  if (item.promoted_decision_id) {
+    return c.json({ error: "already promoted", decisionId: item.promoted_decision_id }, 409);
+  }
+
+  const digest = await db.first<{ project_id: string; line_group_id: string }>(
+    `SELECT project_id, line_group_id FROM digest WHERE id = ? AND {{ORG}}`,
+    item.digest_id,
+  );
+  if (!digest) return c.json({ error: "not found" }, 404);
+
+  const project = await db.first<{ tax_rate_bp: number; decision_seq: number }>(
+    `SELECT tax_rate_bp, decision_seq FROM project WHERE id = ? AND {{ORG}}`,
+    digest.project_id,
+  );
+  if (!project) return c.json({ error: "project not found" }, 404);
+
+  const seq = project.decision_seq + 1;
+  const decisionId = newId("dec");
+  const now = Date.now();
+
+  // Treated as tax-inclusive regardless of the project's default, because a
+  // figure quoted in conversation is the number someone said out loud -- and
+  // in this trade that is the amount the client expects to pay. The designer
+  // can change the basis when they finish the draft; guessing the other way
+  // would silently inflate it.
+  const { exTaxCents, taxCents, incTaxCents } = splitTax(
+    item.amount_inc_tax_cents ?? 0,
+    "inclusive",
+    project.tax_rate_bp,
+  );
+
+  await unscoped(c.env).batch([
+    unscoped(c.env)
+      .prepare(
+        `INSERT INTO decision
+           (id, organization_id, project_id, decision_no, version, title, change_scope,
+            tax_mode, tax_rate_bp, amount_ex_tax_cents, amount_tax_cents, amount_inc_tax_cents,
+            status, line_group_id, source_line_message_ids, created_by, created_at)
+         VALUES (?, ?, ?, ?, 1, ?, ?, 'inclusive', ?, ?, ?, ?, 'draft', ?, ?, 'digest', ?)`,
+      )
+      .bind(
+        decisionId, orgId, digest.project_id, formatDecisionNo(seq), item.title,
+        item.detail ?? null, project.tax_rate_bp, exTaxCents, taxCents, incTaxCents,
+        digest.line_group_id, item.source_message_ids, now,
+      ),
+    unscoped(c.env)
+      .prepare(`UPDATE project SET decision_seq = ? WHERE id = ?`)
+      .bind(seq, digest.project_id),
+    unscoped(c.env)
+      .prepare(`UPDATE digest_item SET promoted_decision_id = ? WHERE id = ?`)
+      .bind(decisionId, item.id),
+  ]);
+
+  return c.json({ ok: true, decisionId, decisionNo: formatDecisionNo(seq) });
 });
 
 // ---------------------------------------------------------------------------

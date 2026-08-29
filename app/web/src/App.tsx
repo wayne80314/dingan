@@ -3,6 +3,7 @@ import { api, type Project } from "./api";
 import { Setup } from "./views/Setup";
 import { ProjectList } from "./views/ProjectList";
 import { DecisionList } from "./views/DecisionList";
+import { DigestList } from "./views/DigestList";
 import { DecisionDetail } from "./views/DecisionDetail";
 
 type View =
@@ -17,6 +18,7 @@ export function App() {
   // Bumped after a publish so the list behind reflects the new state when the
   // user navigates back.
   const [reloadKey, setReloadKey] = useState(0);
+  const [tab, setTab] = useState<"digests" | "decisions">("digests");
 
   useEffect(() => {
     api
@@ -60,6 +62,31 @@ export function App() {
       )}
 
       {ready === true && view.name === "decisions" && (
+        <>
+          {/* Minutes first: they appear every day, where decision cards
+              arrive a handful of times per project. */}
+          <div className="toolbar">
+            <button
+              className={tab === "digests" ? "btn" : "btn ghost"}
+              onClick={() => setTab("digests")}
+            >
+              討論記錄
+            </button>
+            <button
+              className={tab === "decisions" ? "btn" : "btn ghost"}
+              onClick={() => setTab("decisions")}
+            >
+              決策卡
+            </button>
+          </div>
+
+          {tab === "digests" && (
+            <DigestList project={view.project} onPromoted={() => setReloadKey((n) => n + 1)} />
+          )}
+        </>
+      )}
+
+      {ready === true && view.name === "decisions" && tab === "decisions" && (
         <DecisionList
           project={view.project}
           reloadKey={reloadKey}

@@ -144,6 +144,45 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export interface DigestSummary {
+  id: string;
+  digest_date: string;
+  message_count: number;
+  segment_count: number;
+  status: "draft" | "reviewed" | "published" | "dismissed" | "failed";
+  summary_text: string | null;
+  edited_at: number | null;
+  published_at: number | null;
+  error: string | null;
+  created_at: number;
+  item_count: number;
+}
+
+export interface DigestItem {
+  id: string;
+  seq: number;
+  kind: "decision" | "pending" | "cost" | "schedule" | "note";
+  title: string;
+  detail: string | null;
+  amount_inc_tax_cents: number | null;
+  amount_verbatim: string | null;
+  source_message_ids: string;
+  promoted_decision_id: string | null;
+}
+
+export interface DigestSourceMessage {
+  line_message_id: string;
+  display_name_snapshot: string | null;
+  text_content: string | null;
+  line_timestamp: number;
+}
+
+export interface DigestDetail {
+  digest: DigestSummary & { id: string };
+  items: DigestItem[];
+  sources: DigestSourceMessage[];
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -180,6 +219,19 @@ export const api = {
 
   claimGroup: (id: string, body: { projectId: string; purpose?: string }) =>
     post<{ ok: true }>(`/groups/${id}/claim`, body),
+
+  digests: (projectId: string) =>
+    get<{ digests: DigestSummary[] }>(`/projects/${projectId}/digests`),
+
+  digest: (id: string) => get<DigestDetail>(`/digests/${id}`),
+
+  editDigest: (id: string, summaryText: string) =>
+    post<{ ok: true }>(`/digests/${id}/edit`, { summaryText }),
+
+  publishDigest: (id: string) => post<{ ok: true }>(`/digests/${id}/publish`, {}),
+
+  promoteDigestItem: (id: string) =>
+    post<{ ok: true; decisionId: string; decisionNo: string }>(`/digest-items/${id}/promote`, {}),
 
   identityHealth: () => get<IdentityHealth>("/health/identity"),
 

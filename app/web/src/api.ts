@@ -40,6 +40,8 @@ export interface DecisionSummary {
   unidentified: number;
   /** Confirmations whose group receipt never went out. */
   undelivered_receipts: number;
+  /** Outbox state of the card itself: 'sent' means it reached the group. */
+  card_delivery: "pending" | "sent" | "failed" | "uncertain" | null;
 }
 
 export interface ConfirmedTotals {
@@ -214,6 +216,8 @@ export const api = {
 
   publish: (id: string, body: { lineGroupId?: string; expiresAt?: number } = {}) =>
     post<{ ok: true; version: number; contentSha256: string }>(`/decisions/${id}/publish`, body),
+
+  resendDecision: (id: string) => post<{ ok: true }>(`/decisions/${id}/resend`, {}),
 
   unclaimedGroups: () => get<{ groups: UnclaimedGroup[] }>("/groups/unclaimed"),
 

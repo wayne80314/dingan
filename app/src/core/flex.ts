@@ -90,6 +90,33 @@ function lineItemRow(item: CardLineItem): unknown {
 }
 
 /**
+ * Removes text components whose text is empty.
+ *
+ * LINE rejects the whole message if any text component is blank, so a single
+ * conditional field that renders to "" takes down the entire card. That
+ * shipped once and made every version-1 card undeliverable while the dashboard
+ * showed it as published. Building the tree conditionally is the real fix;
+ * this is the net underneath it.
+ */
+function stripEmptyText(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node
+      .map(stripEmptyText)
+      .filter((n) => !(typeof n === "object" && n !== null && (n as Record<string, unknown>).__drop));
+  }
+  if (typeof node !== "object" || node === null) return node;
+
+  const rec = node as Record<string, unknown>;
+  if (rec.type === "text" && (typeof rec.text !== "string" || rec.text.trim() === "")) {
+    return { __drop: true };
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rec)) out[k] = stripEmptyText(v);
+  return out;
+}
+
+/**
  * Builds the card.
  *
  * The amount is the largest thing on it. A change that costs money and is
@@ -104,15 +131,14 @@ export function buildDecisionCard(input: DecisionCardInput): unknown {
     {
       type: "box",
       layout: "baseline",
+      // The version marker is omitted rather than emitted empty: LINE rejects
+      // a text component whose text is "", failing the whole message. A card
+      // at version 1 has nothing to say here, so it says nothing.
       contents: [
         { type: "text", text: input.decisionNo, weight: "bold", size: "sm", color: BRAND_GREEN, flex: 0 },
-        {
-          type: "text",
-          text: input.version > 1 ? `  v${input.version}` : "",
-          size: "xs",
-          color: MUTED,
-          flex: 0,
-        },
+        ...(input.version > 1
+          ? [{ type: "text", text: `  v${input.version}`, size: "xs", color: MUTED, flex: 0 }]
+          : []),
       ],
     },
     { type: "text", text: input.title, weight: "bold", size: "lg", color: INK, wrap: true, margin: "sm" },
@@ -226,7 +252,7 @@ export function buildDecisionCard(input: DecisionCardInput): unknown {
         displayText: `我確認 ${input.decisionNo}`,
       };
 
-  return {
+  return stripEmptyText({
     type: "flex",
     altText: `${input.decisionNo} ${input.title}${hasAmount ? ` ${formatTwd(input.amountIncTaxCents, { withSign: true })}` : ""}`,
     contents: {
@@ -290,5 +316,5 @@ export function buildDecisionCard(input: DecisionCardInput): unknown {
         ],
       },
     },
-  };
+  });
 }

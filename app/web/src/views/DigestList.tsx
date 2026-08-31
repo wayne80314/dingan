@@ -286,12 +286,20 @@ export function DigestList({ project, onPromoted }: Props) {
                       <button className="btn ghost" onClick={save} disabled={busy}>
                         儲存修改
                       </button>
-                      {d.status !== "published" && (
+                      {d.status !== "published" ? (
                         <button className="btn" onClick={publish} disabled={busy || !draft.trim()}>
                           發佈到群組
                         </button>
-                      )}
-                      {d.status === "published" && (
+                      ) : d.edited_at && d.published_at && d.edited_at > d.published_at ? (
+                        <>
+                          <button className="btn" onClick={publish} disabled={busy || !draft.trim()}>
+                            發佈更正版
+                          </button>
+                          <span className="muted" style={{ alignSelf: "center" }}>
+                            發佈後又做了修改，群組看到的還是舊版。
+                          </span>
+                        </>
+                      ) : (
                         <span className="muted" style={{ alignSelf: "center" }}>
                           已於 {formatDateTime(d.published_at)} 發佈
                         </span>

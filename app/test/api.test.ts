@@ -349,6 +349,111 @@ describe("config health", () => {
   });
 });
 
+describe("correcting a published digest", () => {
+  async function seedDigest(t: { orgId: string; projectId: string; groupRowId: string }, over: Record<string, unknown> = {}) {
+    const id = newId("dig");
+    const now = Date.now();
+    await testEnv.DB.prepare(
+      `INSERT INTO digest (id, organization_id, project_id, line_group_id, digest_date,
+        covered_from, covered_to, message_count, status, summary_text,
+        published_at, edited_at, created_at)
+       VALUES (?, ?, ?, ?, '2026-08-31', 0, ?, 5, ?, ?, ?, ?, ?)`,
+    ).bind(
+      id, t.orgId, t.projectId, t.groupRowId, now,
+      over.status ?? "published", over.summary_text ?? "原始摘要",
+      over.published_at ?? now - 10_000,
+      over.edited_at ?? null,
+      now,
+    ).run();
+    return id;
+  }
+
+  it("refuses to republish when nothing changed since it went out", async () => {
+    const t = await seedTenant("aaa");
+    const id = await seedDigest(t);
+
+    const res = await call(`/api/digests/${id}/publish`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  // The group has already seen the wrong version. Blocking the correction
+  // would leave the mistake standing and the fix visible only in the
+  // dashboard, which is the opposite of the point.
+  it("allows republishing after an edit, marked as a correction", async () => {
+    const t = await seedTenant("aaa");
+    const now = Date.now();
+    const id = await seedDigest(t, { published_at: now - 10_000, edited_at: now, summary_text: "更正後的摘要" });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    try {
+      const res = await call(`/api/digests/${id}/publish`, t.orgId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(res.status).toBe(200);
+
+      const row = await testEnv.DB.prepare(
+        `SELECT payload_json, dedupe_key FROM outbox WHERE kind = 'digest' ORDER BY created_at DESC LIMIT 1`,
+      ).first<{ payload_json: string; dedupe_key: string }>();
+      expect(row?.payload_json).toContain("更正版");
+      // Keyed by the edit, so the correction is not suppressed as a duplicate
+      // of the original send.
+      expect(row?.dedupe_key).toContain(String(now));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("marks an edit on a published digest so the interface can offer the correction", async () => {
+    const t = await seedTenant("aaa");
+    const id = await seedDigest(t);
+
+    await call(`/api/digests/${id}/edit`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ summaryText: "改過了" }),
+    });
+
+    const row = await testEnv.DB.prepare(
+      `SELECT status, edited_at, published_at FROM digest WHERE id = ?`,
+    ).bind(id).first<{ status: string; edited_at: number; published_at: number }>();
+    // Editing does not un-publish it; it records that the published version is
+    // now out of date.
+    expect(row?.status).toBe("published");
+    expect(row!.edited_at).toBeGreaterThan(row!.published_at);
+  });
+});
+
+describe("resending a decision card", () => {
+  it("refuses for a decision that is not awaiting confirmation", async () => {
+    const t = await seedTenant("aaa");
+    const res = await call(`/api/decisions/${t.decisionId}/resend`, t.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    // Seeded as confirmed, so there is nothing to resend.
+    expect(res.status).toBe(409);
+  });
+
+  it("does not resend another organization's card", async () => {
+    const a = await seedTenant("aaa");
+    const b = await seedTenant("bbb");
+    const res = await call(`/api/decisions/${a.decisionId}/resend`, b.orgId, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
 describe("running a digest on demand", () => {
   it("refuses when the project has no owner group bound", async () => {
     const t = await seedTenant("aaa");

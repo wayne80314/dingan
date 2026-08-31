@@ -109,6 +109,9 @@ export function DecisionList({ project, onOpenDecision, reloadKey }: Props) {
                 >
                   {STATUS_LABEL[d.status] ?? d.status}
                 </span>
+                {d.status === "pending" && d.card_delivery && d.card_delivery !== "sent" && (
+                  <span className="badge red" style={{ marginLeft: 4 }}>卡片未送達</span>
+                )}
                 {d.unidentified > 0 && <span className="badge warn" style={{ marginLeft: 4 }}>身分待確認</span>}
                 {d.undelivered_receipts > 0 && (
                   <span className="badge red" style={{ marginLeft: 4 }}>回執未送達</span>

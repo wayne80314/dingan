@@ -18,6 +18,7 @@ export function DecisionDetail({ decisionId, onPublished }: Props) {
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [resending, setResending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = () => {
@@ -47,6 +48,20 @@ export function DecisionDetail({ decisionId, onPublished }: Props) {
       setError((e as Error).message);
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const resend = async () => {
+    setResending(true);
+    setNotice(null);
+    try {
+      await api.resendDecision(decisionId);
+      setNotice("已重新送出卡片，請確認群組是否收到。");
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setResending(false);
     }
   };
 
@@ -221,6 +236,17 @@ export function DecisionDetail({ decisionId, onPublished }: Props) {
           </table>
         )}
       </div>
+
+      {d.status === "pending" && (
+        <div className="toolbar">
+          <button className="btn ghost" onClick={resend} disabled={resending}>
+            {resending ? "重送中…" : "重新送出卡片"}
+          </button>
+          <span className="muted" style={{ alignSelf: "center" }}>
+            若群組沒收到卡片，可以再送一次。
+          </span>
+        </div>
+      )}
 
       {canPublish && (
         <div className="toolbar">

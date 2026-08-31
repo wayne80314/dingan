@@ -9,7 +9,7 @@
 
 import { Hono } from "hono";
 import { withOrg, unscoped } from "../core/db";
-import { publishDecision } from "../core/publish";
+import { publishDecision, resendDecisionCard } from "../core/publish";
 import { dispatchOne, enqueue } from "../core/outbox";
 import { formatTwd, splitTax } from "../core/money";
 import { newId, formatDecisionNo } from "../core/ids";
@@ -277,7 +277,12 @@ api.get("/projects/:projectId/decisions", async (c) => {
             -- indistinguishable, to the people in it, from one that never
             -- happened.
             (SELECT COUNT(*) FROM confirmation cf
-              WHERE cf.decision_id = d.id AND cf.receipt_status != 'sent') AS undelivered_receipts
+              WHERE cf.decision_id = d.id AND cf.receipt_status != 'sent') AS undelivered_receipts,
+            -- A card that never left looks exactly like one the client is
+            -- ignoring, which is the worse of the two to misread.
+            (SELECT o.state FROM outbox o
+              WHERE o.dedupe_key LIKE 'decision_card:' || d.id || ':%'
+              ORDER BY o.created_at DESC LIMIT 1) AS card_delivery
        FROM decision d
       WHERE d.project_id = ? AND d.{{ORG}}
       ORDER BY d.created_at DESC`,
@@ -380,6 +385,34 @@ api.post("/decisions/:id/publish", async (c) => {
   }
 
   return c.json({ ok: true, version: result.version, contentSha256: result.contentSha256 });
+});
+
+/**
+ * Re-sends a decision card that never reached the group.
+ *
+ * Without this, a failed send is terminal: the decision sits at 'pending', the
+ * dashboard reads as published, the client has seen nothing, and publishing
+ * again is refused because it only accepts drafts.
+ */
+api.post("/decisions/:id/resend", async (c) => {
+  const orgId = await resolveOrgId(c);
+  if (!orgId) return c.json({ error: "no organization configured" }, 400);
+
+  const result = await resendDecisionCard(c.env, orgId, c.req.param("id"));
+  if (!result.ok) {
+    const message =
+      result.reason === "not_pending"
+        ? "這張卡片目前不是待確認狀態，不需要重送。"
+        : result.reason === "missing_publish_state"
+          ? "找不到這張卡片的發佈紀錄，請改為重新建立。"
+          : "找不到這張卡片。";
+    return c.json({ error: message }, 409);
+  }
+
+  if (result.outboxId) {
+    c.executionCtx.waitUntil(dispatchOne(c.env, result.outboxId).then(() => undefined));
+  }
+  return c.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -559,13 +592,23 @@ api.post("/digests/:id/publish", async (c) => {
     digest_date: string;
     summary_text: string | null;
     status: string;
+    edited_at: number | null;
+    published_at: number | null;
   }>(
-    `SELECT id, project_id, line_group_id, digest_date, summary_text, status
+    `SELECT id, project_id, line_group_id, digest_date, summary_text, status,
+            edited_at, published_at
        FROM digest WHERE id = ? AND {{ORG}}`,
     c.req.param("id"),
   );
   if (!digest) return c.json({ error: "not found" }, 404);
-  if (digest.status === "published") return c.json({ error: "already published" }, 409);
+  // Republishing is allowed only after an edit, and is the point: if the
+  // summary was wrong, the group has already seen the wrong version, and the
+  // correction has to reach the same people. Blocking it would leave the
+  // mistake standing and the fix visible only in the dashboard.
+  const isCorrection = digest.status === "published";
+  if (isCorrection && !(digest.edited_at && digest.published_at && digest.edited_at > digest.published_at)) {
+    return c.json({ error: "這份記錄已發佈，且發佈後未再修改。" }, 409);
+  }
   if (!digest.summary_text?.trim()) return c.json({ error: "沒有可發佈的內容" }, 400);
 
   const group = await db.first<{ line_group_id: string; member_count: number | null }>(
@@ -574,9 +617,16 @@ api.post("/digests/:id/publish", async (c) => {
   );
   if (!group) return c.json({ error: "group not found" }, 404);
 
+  // Marked as a correction so the group can tell it apart from the original
+  // rather than seeing two versions and not knowing which stands.
+  const heading = isCorrection
+    ? `📋 ${digest.digest_date} 討論記錄（更正版）`
+    : `📋 ${digest.digest_date} 討論記錄`;
   const text =
-    `📋 ${digest.digest_date} 討論記錄\n\n${digest.summary_text.trim()}\n\n` +
-    `（本記錄由設計師整理後發佈，如有出入請直接在群組指正。）`;
+    `${heading}\n\n${digest.summary_text.trim()}\n\n` +
+    (isCorrection
+      ? `（此為更正後的版本，取代先前發佈的內容。如仍有出入請直接在群組指正。）`
+      : `（本記錄由設計師整理後發佈，如有出入請直接在群組指正。）`);
 
   const { outboxId } = await enqueue(c.env, {
     organizationId: orgId,
@@ -585,7 +635,9 @@ api.post("/digests/:id/publish", async (c) => {
     kind: "digest",
     messages: [{ type: "text", text }],
     recipientCount: group.member_count ?? 1,
-    dedupeKey: `digest:${digest.id}`,
+    // Keyed by the edit, so a correction is a distinct send rather than being
+    // suppressed as a duplicate of the original.
+    dedupeKey: `digest:${digest.id}:${digest.edited_at ?? 0}`,
   });
 
   await db.run(
